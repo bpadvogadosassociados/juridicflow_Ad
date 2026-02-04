@@ -1,3 +1,547 @@
+// apps/portal/static/portal/js/portal.js
+
+// ===== BUSCA GLOBAL (navbar) =====
+const PortalSearch = {
+  submit(e) {
+    e.preventDefault();
+    const q = document.getElementById('navbar-search-input').value.trim();
+    if (!q) return false;
+    
+    fetch(`/app/api/search/?q=${encodeURIComponent(q)}`)
+      .then(r => r.json())
+      .then(data => {
+        const div = document.getElementById('navbar-search-results');
+        if (!data.results || data.results.length === 0) {
+          div.innerHTML = '<div class="p-3 text-muted">Nenhum resultado.</div>';
+          return;
+        }
+        
+        let html = '<div class="list-group">';
+        data.results.forEach(item => {
+          html += `<a href="${item.url}" class="list-group-item list-group-item-action">
+            <i class="${item.icon}"></i> ${item.label} <small class="text-muted">(${item.type})</small>
+          </a>`;
+        });
+        html += '</div>';
+        div.innerHTML = html;
+      });
+    return false;
+  }
+};
+
+// ===== NOTIFICAÇÕES =====
+function loadNotifications() {
+  fetch('/app/api/notifications/')
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('notif-count').textContent = data.count || 0;
+      const container = document.getElementById('notif-items');
+      if (!data.items || data.items.length === 0) {
+        container.innerHTML = '<div class="dropdown-item text-muted">Sem notificações.</div>';
+        return;
+      }
+      
+      let html = '';
+      data.items.forEach(item => {
+        html += `<a href="#" class="dropdown-item">
+          <i class="fas fa-envelope mr-2"></i> ${item.text}
+          <span class="float-right text-muted text-sm">${item.when}</span>
+        </a><div class="dropdown-divider"></div>`;
+      });
+      container.innerHTML = html;
+    });
+}
+
+// Carregar notificações ao iniciar
+document.addEventListener('DOMContentLoaded', () => {
+  loadNotifications();
+  setInterval(loadNotifications, 60000); // Atualiza a cada 1min
+});
+
+// ===== CHAT =====
+const PortalChat = {
+  currentThreadId: null,
+  pollInterval: null,
+  lastMessageId: 0,
+
+  toggle() {
+    const win = document.getElementById('chat-window');
+    win.classList.toggle('d-none');
+    if (!win.classList.contains('d-none')) {
+      this.loadThreads();
+      this.startPolling();
+    } else {
+      this.stopPolling();
+    }
+  },
+
+  close() {
+    document.getElementById('chat-window').classList.add('d-none');
+    this.stopPolling();
+  },
+
+  loadThreads() {
+    fetch('/app/api/chat/threads/')
+      .then(r => r.json())
+      .then(data => {
+        const container = document.getElementById('chat-threads');
+        if (!data.threads || data.threads.length === 0) {
+          container.innerHTML = '<div class="p-2 text-muted">Sem conversas.</div>';
+          return;
+        }
+        
+        let html = '<div class="list-group">';
+        data.threads.forEach(t => {
+          const active = t.id === this.currentThreadId ? 'active' : '';
+          html += `<a href="#" class="list-group-item list-group-item-action ${active}" 
+                      onclick="PortalChat.selectThread(${t.id}); return false;">
+                    ${t.title}
+                  </a>`;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+      });
+  },
+
+  selectThread(threadId) {
+    this.currentThreadId = threadId;
+    this.lastMessageId = 0;
+    this.loadThreads();
+    this.loadMessages();
+  },
+
+  loadMessages() {
+    if (!this.currentThreadId) return;
+    
+    fetch(`/app/api/chat/thread/${this.currentThreadId}/messages/?after_id=${this.lastMessageId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.messages || data.messages.length === 0) {
+          if (this.lastMessageId === 0) {
+            document.getElementById('chat-messages').innerHTML = '<div class="p-3 text-muted">Sem mensagens.</div>';
+          }
+          return;
+        }
+        
+        const container = document.getElementById('chat-messages');
+        data.messages.forEach(msg => {
+          const div = document.createElement('div');
+          div.className = 'portal-chat-message';
+          div.innerHTML = `<strong>${msg.sender}</strong> <small class="text-muted">${msg.when}</small><br>${msg.body}`;
+          container.appendChild(div);
+          this.lastMessageId = Math.max(this.lastMessageId, msg.id);
+        });
+        
+        container.scrollTop = container.scrollHeight;
+      });
+  },
+
+  send(e) {
+    e.preventDefault();
+    if (!this.currentThreadId) {
+      alert('Selecione uma conversa primeiro.');
+      return false;
+    }
+    
+    const input = document.getElementById('chat-input');
+    const body = input.value.trim();
+    if (!body) return false;
+    
+    fetch(`/app/api/chat/thread/${this.currentThreadId}/send/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({ body })
+    })
+    .then(r => r.json())
+    .then(() => {
+      input.value = '';
+      this.loadMessages();
+    });
+    
+    return false;
+  },
+
+  newGroup() {
+    const title = prompt('Nome do grupo:');
+    if (!title) return;
+    
+    const emailsStr = prompt('Emails dos participantes (separados por vírgula):');
+    if (!emailsStr) return;
+    
+    const emails = emailsStr.split(',').map(e => e.trim()).filter(e => e);
+    
+    fetch('/app/api/chat/thread/create/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({ title, emails })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.thread_id) {
+        this.loadThreads();
+        this.selectThread(data.thread_id);
+      }
+    });
+  },
+
+  startPolling() {
+    this.pollInterval = setInterval(() => {
+      if (this.currentThreadId) {
+        this.loadMessages();
+      }
+    }, 3000); // Poll a cada 3s
+  },
+
+  stopPolling() {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
+  }
+};
+
+// ===== CALENDAR =====
+const PortalCalendar = {
+  calendar: null,
+
+  init() {
+    const calendarEl = document.getElementById('calendar');
+    if (!calendarEl) return;
+
+    this.calendar = new FullCalendar.Calendar(calendarEl, {
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,timeGridDay'
+      },
+      themeSystem: 'bootstrap',
+      editable: true,
+      droppable: true,
+      events: '/app/api/calendar/events/',
+      
+      eventDrop: (info) => {
+        this.updateEvent(info.event);
+      },
+      
+      eventResize: (info) => {
+        this.updateEvent(info.event);
+      },
+      
+      drop: (info) => {
+        const title = info.draggedEl.innerText;
+        const color = info.draggedEl.getAttribute('data-color');
+        
+        fetch('/app/api/calendar/events/create/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+          body: JSON.stringify({
+            title,
+            start: info.dateStr,
+            all_day: info.allDay,
+            color
+          })
+        })
+        .then(r => r.json())
+        .then(() => {
+          this.calendar.refetchEvents();
+          if (document.getElementById('drop-remove').checked) {
+            info.draggedEl.parentNode.removeChild(info.draggedEl);
+          }
+        });
+      }
+    });
+
+    this.calendar.render();
+    this.initDraggable();
+  },
+
+  initDraggable() {
+    const containerEl = document.getElementById('external-events');
+    if (!containerEl) return;
+
+    new FullCalendar.Draggable(containerEl, {
+      itemSelector: '.external-event',
+      eventData: (eventEl) => ({
+        title: eventEl.innerText,
+        backgroundColor: eventEl.getAttribute('data-color'),
+        borderColor: eventEl.getAttribute('data-color')
+      })
+    });
+  },
+
+  updateEvent(event) {
+    fetch(`/app/api/calendar/events/update/${event.id}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({
+        start: event.start.toISOString(),
+        end: event.end ? event.end.toISOString() : null,
+        all_day: event.allDay
+      })
+    });
+  }
+};
+
+// ===== KANBAN =====
+const KanbanUI = {
+  board: null,
+
+  init() {
+    this.loadBoard();
+  },
+
+  loadBoard() {
+    fetch('/app/api/kanban/board/')
+      .then(r => r.json())
+      .then(data => {
+        this.board = data;
+        this.render();
+      });
+  },
+
+  render() {
+    const container = document.getElementById('kanban-columns');
+    if (!container) return;
+
+    let html = '';
+    this.board.columns.forEach(col => {
+      html += `
+        <div class="col-md-3">
+          <div class="card card-row card-default">
+            <div class="card-header">
+              <h3 class="card-title">${col.title}</h3>
+              <div class="card-tools">
+                <button class="btn btn-tool btn-sm" onclick="KanbanUI.addCard(${col.id}); return false;">
+                  <i class="fas fa-plus"></i>
+                </button>
+                <button class="btn btn-tool btn-sm" onclick="KanbanUI.editColumn(${col.id}); return false;">
+                  <i class="fas fa-pencil-alt"></i>
+                </button>
+                <button class="btn btn-tool btn-sm" onclick="KanbanUI.deleteColumn(${col.id}); return false;">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </div>
+            <div class="card-body" data-column-id="${col.id}">
+              ${col.cards.map(card => `
+                <div class="card card-light card-outline kanban-card" data-card-id="${card.id}" draggable="true">
+                  <div class="card-header">
+                    <h5 class="card-title">#${card.number} ${card.title}</h5>
+                    <div class="card-tools">
+                      <button class="btn btn-tool btn-sm" onclick="KanbanUI.editCard(${card.id}); return false;">
+                        <i class="fas fa-pencil-alt"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="card-body" onclick="KanbanUI.viewCard(${card.id});" style="cursor:pointer;">
+                    ${card.body_preview}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    });
+    container.innerHTML = html;
+    this.initDragDrop();
+  },
+
+  initDragDrop() {
+    const cards = document.querySelectorAll('.kanban-card');
+    cards.forEach(card => {
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', card.getAttribute('data-card-id'));
+        card.classList.add('dragging');
+      });
+      
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+      });
+    });
+
+    const columns = document.querySelectorAll('[data-column-id]');
+    columns.forEach(col => {
+      col.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      });
+      
+      col.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const cardId = e.dataTransfer.getData('text/plain');
+        const columnId = col.getAttribute('data-column-id');
+        
+        fetch('/app/api/kanban/cards/move/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+          body: JSON.stringify({ card_id: cardId, column_id: columnId, order: 0 })
+        })
+        .then(() => this.loadBoard());
+      });
+    });
+  },
+
+  addColumn() {
+    const title = prompt('Título da coluna:');
+    if (!title) return;
+    
+    fetch('/app/api/kanban/columns/create/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({ title })
+    })
+    .then(() => this.loadBoard());
+  },
+
+  editColumn(colId) {
+    const title = prompt('Novo título:');
+    if (!title) return;
+    
+    fetch(`/app/api/kanban/columns/update/${colId}/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({ title })
+    })
+    .then(() => this.loadBoard());
+  },
+
+  deleteColumn(colId) {
+    if (!confirm('Deletar esta coluna?')) return;
+    
+    fetch(`/app/api/kanban/columns/delete/${colId}/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken') }
+    })
+    .then(() => this.loadBoard());
+  },
+
+  addCard(colId) {
+    document.getElementById('card-id').value = '';
+    document.getElementById('card-title').value = 'Exemplo';
+    document.getElementById('card-number').value = Date.now() % 10000;
+    document.getElementById('card-body-md').value = '';
+    document.getElementById('card-edit-form').setAttribute('data-column-id', colId);
+    $('#cardEditModal').modal('show');
+  },
+
+  editCard(cardId) {
+    fetch(`/app/api/kanban/cards/detail/${cardId}/`)
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('card-id').value = data.id;
+        document.getElementById('card-title').value = data.title;
+        document.getElementById('card-number').value = data.number;
+        document.getElementById('card-body-md').value = data.body_md || '';
+        $('#cardEditModal').modal('show');
+      });
+  },
+
+  saveCard(e) {
+    e.preventDefault();
+    const cardId = document.getElementById('card-id').value;
+    const title = document.getElementById('card-title').value;
+    const number = parseInt(document.getElementById('card-number').value);
+    const body_md = document.getElementById('card-body-md').value;
+    
+    if (cardId) {
+      // Update
+      fetch(`/app/api/kanban/cards/update/${cardId}/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({ title, number, body_md })
+      })
+      .then(() => {
+        $('#cardEditModal').modal('hide');
+        this.loadBoard();
+      });
+    } else {
+      // Create
+      const columnId = document.getElementById('card-edit-form').getAttribute('data-column-id');
+      fetch('/app/api/kanban/cards/create/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({ column_id: columnId, title, number, body_md })
+      })
+      .then(() => {
+        $('#cardEditModal').modal('hide');
+        this.loadBoard();
+      });
+    }
+    
+    return false;
+  },
+
+  viewCard(cardId) {
+    fetch(`/app/api/kanban/cards/detail/${cardId}/`)
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('card-view-title').textContent = `#${data.number} ${data.title}`;
+        document.getElementById('card-view-body').innerHTML = marked.parse(data.body_md || '');
+        $('#cardViewModal').modal('show');
+      });
+  }
+};
+
+// ===== ERP TEMPLATES (Settings) =====
+const ERPTemplates = {
+  init() {
+    this.load();
+  },
+
+  load() {
+    fetch('/app/api/calendar/templates/list/')
+      .then(r => r.json())
+      .then(data => {
+        const container = document.getElementById('tpl-list');
+        if (!data.items || data.items.length === 0) {
+          container.innerHTML = '<p class="text-muted">Sem modelos.</p>';
+          return;
+        }
+        
+        let html = '<div class="list-group">';
+        data.items.forEach(t => {
+          html += `<div class="list-group-item d-flex justify-content-between align-items-center">
+            <span><span style="width:20px;height:20px;background:${t.color};display:inline-block;border-radius:3px;"></span> ${t.title}</span>
+            <button class="btn btn-sm btn-danger" onclick="ERPTemplates.delete(${t.id}); return false;">Deletar</button>
+          </div>`;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+      });
+  },
+
+  create(e) {
+    e.preventDefault();
+    const title = document.getElementById('tpl-title').value.trim();
+    const color = document.getElementById('tpl-color').value.trim();
+    
+    fetch('/app/api/calendar/templates/create/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+      body: JSON.stringify({ title, color })
+    })
+    .then(() => {
+      document.getElementById('tpl-title').value = '';
+      this.load();
+    });
+    
+    return false;
+  },
+
+  delete(tplId) {
+    if (!confirm('Deletar este modelo?')) return;
+    
+    fetch(`/app/api/calendar/templates/delete/${tplId}/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': getCookie('csrftoken') }
+    })
+    .then(() => this.load());
+  }
+};
+
+// ===== HELPER: GET CSRF TOKEN =====
 function getCookie(name) {
   let cookieValue = null;
   if (document.cookie && document.cookie !== '') {
@@ -12,379 +556,3 @@ function getCookie(name) {
   }
   return cookieValue;
 }
-const CSRFTOKEN = getCookie('csrftoken');
-
-async function jsonFetch(url, opts={}){
-  const headers = opts.headers || {};
-  headers["X-CSRFToken"] = CSRFTOKEN;
-  headers["Content-Type"] = headers["Content-Type"] || "application/json";
-  opts.headers = headers;
-  const res = await fetch(url, opts);
-  if(!res.ok){
-    const text = await res.text();
-    throw new Error(text || ("HTTP " + res.status));
-  }
-  return await res.json();
-}
-
-const PortalSearch = {
-  async submit(ev){
-    ev.preventDefault();
-    const q = document.getElementById("navbar-search-input").value.trim();
-    const box = document.getElementById("navbar-search-results");
-    if(!q){ box.style.display="none"; return false; }
-    const data = await jsonFetch("/app/api/search/?q=" + encodeURIComponent(q), {method:"GET", headers: {"Content-Type": "application/json"}});
-    box.innerHTML = "";
-    if(data.results.length === 0){
-      box.innerHTML = '<div class="text-muted p-2">Nenhum resultado.</div>';
-    } else {
-      for(const r of data.results){
-        const a = document.createElement("a");
-        a.href = r.url || "#";
-        a.innerHTML = `<i class="${r.icon} mr-2"></i>${r.label} <small class="text-muted">(${r.type})</small>`;
-        box.appendChild(a);
-      }
-    }
-    box.style.display="block";
-    return false;
-  }
-};
-
-const PortalNotifications = {
-  async refresh(){
-    try{
-      const data = await jsonFetch("/app/api/notifications/", {method:"GET", headers: {"Content-Type": "application/json"}});
-      document.getElementById("notif-count").innerText = data.count;
-      const items = document.getElementById("notif-items");
-      items.innerHTML = "";
-      for(const n of data.items){
-        const div = document.createElement("a");
-        div.href = "#";
-        div.className = "dropdown-item";
-        div.innerHTML = `<i class="fas fa-bolt mr-2"></i> ${n.text} <span class="float-right text-muted text-sm">${n.when}</span>`;
-        items.appendChild(div);
-        const dd = document.createElement("div");
-        dd.className = "dropdown-divider";
-        items.appendChild(dd);
-      }
-    }catch(e){ /* ignore */ }
-  }
-};
-setInterval(()=>PortalNotifications.refresh(), 15000);
-setTimeout(()=>PortalNotifications.refresh(), 800);
-
-const PortalChat = {
-  open: false,
-  activeThread: null,
-  initDone: false,
-  dragging: false,
-  dragOffset: {x:0,y:0},
-
-  toggle(){
-    const w = document.getElementById("chat-window");
-    if(w.classList.contains("d-none")){
-      w.classList.remove("d-none");
-      this.open = true;
-      if(!this.initDone){ this.init(); this.initDone = true; }
-      this.refreshThreads();
-    } else {
-      w.classList.add("d-none");
-      this.open = false;
-    }
-  },
-  close(){
-    document.getElementById("chat-window").classList.add("d-none");
-    this.open = false;
-  },
-  init(){
-    const header = document.querySelector(".portal-chat-header");
-    const win = document.getElementById("chat-window");
-    header.addEventListener("mousedown", (e)=>{
-      this.dragging = true;
-      const rect = win.getBoundingClientRect();
-      this.dragOffset.x = e.clientX - rect.left;
-      this.dragOffset.y = e.clientY - rect.top;
-      e.preventDefault();
-    });
-    window.addEventListener("mousemove", (e)=>{
-      if(!this.dragging) return;
-      win.style.left = (e.clientX - this.dragOffset.x) + "px";
-      win.style.top = (e.clientY - this.dragOffset.y) + "px";
-      win.style.right = "auto";
-      win.style.bottom = "auto";
-    });
-    window.addEventListener("mouseup", ()=>{ this.dragging=false; });
-    setInterval(()=>{ if(this.open) this.refreshMessages(); }, 4000);
-  },
-  async refreshThreads(){
-    const data = await jsonFetch("/app/api/chat/threads/", {method:"GET", headers: {"Content-Type": "application/json"}});
-    const box = document.getElementById("chat-threads");
-    box.innerHTML = "";
-    for(const t of data.threads){
-      const div = document.createElement("div");
-      div.className = "thread" + (this.activeThread===t.id ? " active" : "");
-      div.innerText = t.title;
-      div.onclick = ()=>{ this.activeThread = t.id; this.refreshThreads(); this.refreshMessages(true); };
-      box.appendChild(div);
-    }
-    if(!this.activeThread && data.threads.length){ this.activeThread = data.threads[0].id; this.refreshThreads(); }
-  },
-  async refreshMessages(scrollBottom=false){
-    if(!this.activeThread) return;
-    const data = await jsonFetch(`/app/api/chat/thread/${this.activeThread}/messages/?after_id=${window.__lastMsgId||0}`, {method:"GET", headers: {"Content-Type": "application/json"}});
-    const box = document.getElementById("chat-messages");
-    for(const m of data.messages){
-      const div = document.createElement("div");
-      div.className = "portal-msg";
-      div.innerHTML = `<div class="meta">${m.sender} • ${m.when}</div><div class="body">${m.body}</div>`;
-      box.appendChild(div);
-      window.__lastMsgId = m.id;
-      scrollBottom = true;
-    }
-    if(scrollBottom){ box.scrollTop = box.scrollHeight; }
-  },
-  async send(ev){
-    ev.preventDefault();
-    if(!this.activeThread) return false;
-    const inp = document.getElementById("chat-input");
-    const body = inp.value.trim();
-    if(!body) return false;
-    await jsonFetch(`/app/api/chat/thread/${this.activeThread}/send/`, {method:"POST", body: JSON.stringify({body})});
-    inp.value = "";
-    await this.refreshMessages(true);
-    return false;
-  },
-  async newGroup(){
-    const title = prompt("Nome do grupo:");
-    if(!title) return;
-    const emails = prompt("Emails (separados por vírgula) dos membros do escritório:");
-    const list = emails ? emails.split(",").map(x=>x.trim()).filter(Boolean) : [];
-    const data = await jsonFetch("/app/api/chat/thread/create/", {method:"POST", body: JSON.stringify({title, emails:list})});
-    this.activeThread = data.thread_id;
-    await this.refreshThreads();
-    await this.refreshMessages(true);
-  }
-};
-
-const PortalCalendar = {
-  init(){
-    const Calendar = window.FullCalendar.Calendar;
-    const Draggable = window.FullCalendar.Draggable;
-
-    const containerEl = document.getElementById('external-events');
-    if(containerEl){
-      new Draggable(containerEl, {
-        itemSelector: '.external-event',
-        eventData: function(eventEl) {
-          const color = eventEl.getAttribute("data-color") || "#3c8dbc";
-          return { title: eventEl.innerText.trim(), backgroundColor: color, borderColor: color };
-        }
-      });
-    }
-
-    const calendarEl = document.getElementById('calendar');
-    const calendar = new Calendar(calendarEl, {
-      locale: 'pt-br',
-      headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' },
-      themeSystem: 'bootstrap',
-      editable: true,
-      droppable: true,
-      events: '/app/api/calendar/events/',
-      drop: async function(info){
-        const rm = document.getElementById('drop-remove');
-        if (rm && rm.checked) info.draggedEl.parentNode.removeChild(info.draggedEl);
-        try{
-          await jsonFetch('/app/api/calendar/events/create/', {method:'POST', body: JSON.stringify({
-            title: info.draggedEl.innerText.trim(),
-            start: info.dateStr,
-            all_day: info.allDay,
-            color: info.draggedEl.getAttribute("data-color") || "#3c8dbc",
-          })});
-          calendar.refetchEvents();
-        }catch(e){ alert("Erro ao criar evento: " + e.message); }
-      },
-      eventDrop: async function(info){
-        try{
-          await jsonFetch(`/app/api/calendar/events/update/${info.event.id}/`, {method:'POST', body: JSON.stringify({
-            start: info.event.start.toISOString(),
-            end: info.event.end ? info.event.end.toISOString() : null,
-            all_day: info.event.allDay
-          })});
-        }catch(e){ alert("Erro ao mover: " + e.message); info.revert(); }
-      },
-      eventResize: async function(info){
-        try{
-          await jsonFetch(`/app/api/calendar/events/update/${info.event.id}/`, {method:'POST', body: JSON.stringify({
-            start: info.event.start.toISOString(),
-            end: info.event.end ? info.event.end.toISOString() : null,
-            all_day: info.event.allDay
-          })});
-        }catch(e){ alert("Erro ao redimensionar: " + e.message); info.revert(); }
-      },
-      eventClick: async function(info){
-        if(confirm("Deletar este evento?")){
-          await jsonFetch(`/app/api/calendar/events/delete/${info.event.id}/`, {method:"POST", body: "{}"});
-          calendar.refetchEvents();
-        }
-      }
-    });
-    calendar.render();
-  }
-};
-
-const ERPTemplates = {
-  async init(){
-    await this.refresh();
-  },
-  async refresh(){
-    const list = document.getElementById("tpl-list");
-    const data = await jsonFetch("/app/api/calendar/templates/list/", {method:"GET", headers: {"Content-Type":"application/json"}});
-    list.innerHTML = "";
-    if(data.items.length===0){
-      list.innerHTML = '<p class="text-muted">Sem modelos.</p>';
-      return;
-    }
-    for(const t of data.items){
-      const row = document.createElement("div");
-      row.className = "d-flex align-items-center mb-2";
-      row.innerHTML = `<span class="badge mr-2" style="background:${t.color}">&nbsp;</span><span class="mr-auto">${t.title}</span>
-        <button class="btn btn-sm btn-danger"><i class="fas fa-trash"></i></button>`;
-      row.querySelector("button").onclick = async ()=>{
-        if(confirm("Deletar?")){
-          await jsonFetch(`/app/api/calendar/templates/delete/${t.id}/`, {method:"POST", body:"{}"});
-          await this.refresh();
-        }
-      };
-      list.appendChild(row);
-    }
-  },
-  async create(ev){
-    ev.preventDefault();
-    const title = document.getElementById("tpl-title").value.trim();
-    const color = document.getElementById("tpl-color").value.trim();
-    if(!title) return false;
-    await jsonFetch("/app/api/calendar/templates/create/", {method:"POST", body: JSON.stringify({title, color})});
-    document.getElementById("tpl-title").value = "";
-    await this.refresh();
-    return false;
-  }
-};
-
-const KanbanUI = {
-  boardId: null,
-  async init(){
-    await this.refresh();
-    // live markdown preview
-    const md = document.getElementById("card-body-md");
-    if(md){
-      md.addEventListener("input", ()=>{ document.getElementById("card-preview").innerHTML = MarkedLite.render(md.value); });
-    }
-  },
-  async refresh(){
-    const data = await jsonFetch("/app/api/kanban/board/", {method:"GET", headers: {"Content-Type":"application/json"}});
-    this.boardId = data.board_id;
-    const row = document.getElementById("kanban-columns");
-    row.innerHTML = "";
-    for(const col of data.columns){
-      const colEl = document.createElement("div");
-      colEl.className = "col-md-3";
-      colEl.innerHTML = `
-        <div class="card card-row card-secondary">
-          <div class="card-header">
-            <h3 class="card-title">${col.title}</h3>
-            <div class="card-tools float-right">
-              <a href="#" class="btn btn-tool" title="Adicionar card" onclick="KanbanUI.addCard(${col.id}); return false;"><i class="fas fa-plus"></i></a>
-              <a href="#" class="btn btn-tool" title="Editar coluna" onclick="KanbanUI.editColumn(${col.id}, '${col.title.replace(/'/g,"&#39;")}'); return false;"><i class="fas fa-pencil-alt"></i></a>
-              <a href="#" class="btn btn-tool text-danger" title="Deletar coluna" onclick="KanbanUI.deleteColumn(${col.id}); return false;"><i class="fas fa-trash"></i></a>
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="card-column connectedSortable" data-col="${col.id}"></div>
-          </div>
-        </div>`;
-      row.appendChild(colEl);
-      const container = colEl.querySelector(".card-column");
-      for(const card of col.cards){
-        const c = document.createElement("div");
-        c.className = "card card-light card-outline";
-        c.setAttribute("data-card", card.id);
-        c.innerHTML = `
-          <div class="card-header">
-            <h5 class="card-title"><a href="#" onclick="KanbanUI.viewCard(${card.id}); return false;">#${card.number} ${card.title}</a></h5>
-            <div class="card-tools">
-              <a href="#" class="btn btn-tool" onclick="KanbanUI.editCard(${card.id}); return false;"><i class="fas fa-pencil-alt"></i></a>
-            </div>
-          </div>
-          <div class="card-body text-sm text-truncate">${card.body_preview}</div>`;
-        container.appendChild(c);
-      }
-    }
-
-    // sortable
-    $(".connectedSortable").sortable({
-      connectWith: ".connectedSortable",
-      placeholder: "sort-highlight",
-      forcePlaceholderSize: true,
-      zIndex: 999999,
-      stop: async (event, ui)=>{
-        const cardId = ui.item.attr("data-card");
-        const newCol = ui.item.parent().attr("data-col");
-        const order = ui.item.index();
-        try{
-          await jsonFetch("/app/api/kanban/cards/move/", {method:"POST", body: JSON.stringify({card_id: parseInt(cardId), column_id: parseInt(newCol), order})});
-        }catch(e){
-          alert("Erro ao mover: " + e.message);
-          await this.refresh();
-        }
-      }
-    }).disableSelection();
-  },
-  async addColumn(){
-    const title = prompt("Título da coluna:");
-    if(!title) return;
-    await jsonFetch("/app/api/kanban/columns/create/", {method:"POST", body: JSON.stringify({title})});
-    await this.refresh();
-  },
-  async editColumn(colId, currentTitle){
-    const title = prompt("Novo título:", currentTitle);
-    if(!title) return;
-    await jsonFetch(`/app/api/kanban/columns/update/${colId}/`, {method:"POST", body: JSON.stringify({title})});
-    await this.refresh();
-  },
-  async deleteColumn(colId){
-    if(!confirm("Deletar coluna?")) return;
-    await jsonFetch(`/app/api/kanban/columns/delete/${colId}/`, {method:"POST", body: "{}"});
-    await this.refresh();
-  },
-  async addCard(colId){
-    // cria com defaults
-    await jsonFetch("/app/api/kanban/cards/create/", {method:"POST", body: JSON.stringify({column_id: colId, title: "Exemplo", number: Date.now()%100000, body_md: "Texto **exemplo**"})});
-    await this.refresh();
-  },
-  async editCard(cardId){
-    const data = await jsonFetch(`/app/api/kanban/cards/detail/${cardId}/`, {method:"GET", headers: {"Content-Type":"application/json"}});
-    document.getElementById("card-id").value = data.id;
-    document.getElementById("card-title").value = data.title;
-    document.getElementById("card-number").value = data.number;
-    document.getElementById("card-body-md").value = data.body_md;
-    document.getElementById("card-preview").innerHTML = MarkedLite.render(data.body_md);
-    $("#cardEditModal").modal("show");
-  },
-  async saveCard(ev){
-    ev.preventDefault();
-    const id = document.getElementById("card-id").value;
-    const title = document.getElementById("card-title").value.trim();
-    const number = parseInt(document.getElementById("card-number").value);
-    const body_md = document.getElementById("card-body-md").value;
-    await jsonFetch(`/app/api/kanban/cards/update/${id}/`, {method:"POST", body: JSON.stringify({title, number, body_md})});
-    $("#cardEditModal").modal("hide");
-    await this.refresh();
-    return false;
-  },
-  async viewCard(cardId){
-    const data = await jsonFetch(`/app/api/kanban/cards/detail/${cardId}/`, {method:"GET", headers: {"Content-Type":"application/json"}});
-    document.getElementById("card-view-title").innerText = `#${data.number} ${data.title}`;
-    document.getElementById("card-view-body").innerHTML = MarkedLite.render(data.body_md);
-    $("#cardViewModal").modal("show");
-  }
-};

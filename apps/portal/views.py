@@ -6,6 +6,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponseForbidden, HttpRequest
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_http_methods
+from django.core.paginator import Paginator
 
 from apps.portal.forms import PortalLoginForm, SupportTicketForm
 from apps.portal.models import (
@@ -15,7 +16,7 @@ from apps.portal.models import (
     ChatThread, ChatMember, ChatMessage,
 )
 from apps.customers.models import Customer
-from apps.processes.models import Process
+from apps.processes.models import Process, ProcessParty
 from apps.memberships.models import Membership
 from apps.offices.models import Office
 from apps.accounts.models import User
@@ -92,14 +93,184 @@ def dashboard(request):
     latest_processes = processes_qs.order_by("-id")[:5]
     return render(request, "portal/dashboard.html", {"counts": counts, "latest_processes": latest_processes, "active_page":"dashboard"})
 
+
+
+
+# Views Processos
 @login_required
 def processos(request):
     forbid = _ensure_portal_user(request)
     if forbid: return forbid
     must = _ensure_office(request)
     if must: return must
-    processes = Process.objects.for_request(request).filter(office=request.office).order_by("-id")[:100]
-    return render(request, "portal/processos.html", {"processes": processes, "active_page":"processos"})
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    phase = request.GET.get('phase', '')
+    status = request.GET.get('status', '')
+    
+    qs = Process.objects.for_request(request).filter(office=request.office)
+    
+    if search:
+        qs = qs.filter(
+            models.Q(number__icontains=search) |
+            models.Q(subject__icontains=search) |
+            models.Q(court__icontains=search)
+        )
+    
+    if phase:
+        qs = qs.filter(phase=phase)
+    
+    if status:
+        qs = qs.filter(status=status)
+    
+    qs = qs.order_by('-created_at')
+    
+    # Paginação
+    paginator = Paginator(qs, 25)
+    page = request.GET.get('page', 1)
+    processes = paginator.get_page(page)
+    
+    # Choices para filtros
+    phase_choices = [
+        ('initial', 'Inicial'),
+        ('instruction', 'Instrução'),
+        ('sentence', 'Sentença'),
+        ('appeal', 'Recurso'),
+        ('execution', 'Execução'),
+        ('archived', 'Arquivado'),
+    ]
+    
+    status_choices = [
+        ('active', 'Ativo'),
+        ('suspended', 'Suspenso'),
+        ('finished', 'Finalizado'),
+    ]
+    
+    return render(request, "portal/processos.html", {
+        "processes": processes,
+        "search": search,
+        "phase": phase,
+        "status": status,
+        "phase_choices": phase_choices,
+        "status_choices": status_choices,
+        "active_page": "processos"
+    })
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def processo_create(request):
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    if request.method == "POST":
+        number = request.POST.get('number', '').strip()
+        court = request.POST.get('court', '').strip()
+        subject = request.POST.get('subject', '').strip()
+        phase = request.POST.get('phase', 'initial')
+        status = request.POST.get('status', 'active')
+        
+        if not number:
+            messages.error(request, "Número do processo é obrigatório.")
+            return redirect('portal:processo_create')
+        
+        process = Process.objects.create(
+            organization=request.organization,
+            office=request.office,
+            number=number,
+            court=court,
+            subject=subject,
+            phase=phase,
+            status=status
+        )
+        
+        # Partes (simplificado - depois pode melhorar)
+        ActivityLog.objects.create(
+            organization=request.organization,
+            office=request.office,
+            actor=request.user,
+            verb="process_create",
+            description=f"Novo processo: {number}"
+        )
+        
+        messages.success(request, f"Processo {number} criado com sucesso!")
+        return redirect('portal:processo_detail', process.id)
+    
+    phase_choices = [
+        ('initial', 'Inicial'),
+        ('instruction', 'Instrução'),
+        ('sentence', 'Sentença'),
+        ('appeal', 'Recurso'),
+        ('execution', 'Execução'),
+    ]
+    
+    return render(request, "portal/processo_form.html", {
+        "phase_choices": phase_choices,
+        "active_page": "processos"
+    })
+
+@login_required
+def processo_detail(request, process_id):
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    process = get_object_or_404(Process, id=process_id, office=request.office)
+    parties = process.parties.all()
+    
+    # Prazos relacionados
+    from apps.deadlines.models import Deadline
+    from django.contrib.contenttypes.models import ContentType
+    ct = ContentType.objects.get_for_model(Process)
+    deadlines = Deadline.objects.filter(
+        office=request.office,
+        content_type=ct,
+        object_id=process.id
+    ).order_by('due_date')
+    
+    # Documentos relacionados
+    from apps.documents.models import Document
+    ct_doc = ContentType.objects.get_for_model(Process)
+    documents = Document.objects.filter(
+        office=request.office
+    )[:10]  # Simplificado
+    
+    return render(request, "portal/processo_detail.html", {
+        "process": process,
+        "parties": parties,
+        "deadlines": deadlines,
+        "documents": documents,
+        "active_page": "processos"
+    })
+
+@login_required
+@require_http_methods(["POST"])
+def processo_delete(request, process_id):
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    process = get_object_or_404(Process, id=process_id, office=request.office)
+    number = process.number
+    process.delete()
+    
+    ActivityLog.objects.create(
+        organization=request.organization,
+        office=request.office,
+        actor=request.user,
+        verb="process_delete",
+        description=f"Processo deletado: {number}"
+    )
+    
+    return JsonResponse({"ok": True})
+
+# Fim Views processos
+
+
 
 @login_required
 def contatos(request):
