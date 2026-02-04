@@ -1,0 +1,145 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Dashboard | JuridicFlow{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block breadcrumb %}Dashboard{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-12 col-sm-6 col-md-3">
+    <div class="info-box">
+      <span class="info-box-icon bg-info elevation-1"><i class="fas fa-users"></i></span>
+      <div class="info-box-content">
+        <span class="info-box-text">Contatos</span>
+        <span class="info-box-number">{{ counts.customers }}</span>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-sm-6 col-md-3">
+    <div class="info-box mb-3">
+      <span class="info-box-icon bg-danger elevation-1"><i class="fas fa-folder-open"></i></span>
+      <div class="info-box-content">
+        <span class="info-box-text">Processos</span>
+        <span class="info-box-number">{{ counts.processes }}</span>
+      </div>
+    </div>
+  </div>
+  <div class="clearfix hidden-md-up"></div>
+  <div class="col-12 col-sm-6 col-md-3">
+    <div class="info-box mb-3">
+      <span class="info-box-icon bg-success elevation-1"><i class="fas fa-tasks"></i></span>
+      <div class="info-box-content">
+        <span class="info-box-text">Tarefas Pendentes</span>
+        <span class="info-box-number">{{ counts.pending_tasks }}</span>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-sm-6 col-md-3">
+    <div class="info-box mb-3">
+      <span class="info-box-icon bg-warning elevation-1"><i class="fas fa-users"></i></span>
+      <div class="info-box-content">
+        <span class="info-box-text">Equipe</span>
+        <span class="info-box-number">{{ counts.team }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header">
+        <h5 class="card-title">Resumo Mensal</h5>
+        <div class="card-tools">
+          <button type="button" class="btn btn-tool" data-card-widget="collapse"><i class="fas fa-minus"></i></button>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-md-8">
+            <p class="text-center"><strong>Exemplo: evolução mensal (MVP)</strong></p>
+            <div class="chart"><canvas id="salesChart" height="180"></canvas></div>
+          </div>
+          <div class="col-md-4">
+            <p class="text-center"><strong>Indicadores</strong></p>
+            <div class="progress-group">Processos ativos <span class="float-right"><b>{{ counts.processes }}</b></span>
+              <div class="progress progress-sm"><div class="progress-bar bg-primary" style="width: 70%"></div></div>
+            </div>
+            <div class="progress-group">Tarefas pendentes <span class="float-right"><b>{{ counts.pending_tasks }}</b></span>
+              <div class="progress progress-sm"><div class="progress-bar bg-danger" style="width: 55%"></div></div>
+            </div>
+            <div class="progress-group">Contatos <span class="float-right"><b>{{ counts.customers }}</b></span>
+              <div class="progress progress-sm"><div class="progress-bar bg-success" style="width: 60%"></div></div>
+            </div>
+            <div class="progress-group">Equipe <span class="float-right"><b>{{ counts.team }}</b></span>
+              <div class="progress progress-sm"><div class="progress-bar bg-warning" style="width: 40%"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer">
+        <small class="text-muted">Você pode redefinir o gráfico para métricas reais depois.</small>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header border-transparent">
+        <h3 class="card-title">Últimos Processos</h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table m-0">
+            <thead>
+            <tr>
+              <th>Número</th>
+              <th>Assunto</th>
+              <th>Status</th>
+              <th>Responsável</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for p in latest_processes %}
+              <tr>
+                <td><a href="#">{{ p.number }}</a></td>
+                <td>{{ p.subject|default:"—" }}</td>
+                <td>
+                  {% if p.status == 'active' %}
+                    <span class="badge badge-success">Ativo</span>
+                  {% else %}
+                    <span class="badge badge-warning">{{ p.status }}</span>
+                  {% endif %}
+                </td>
+                <td class="text-muted">—</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4" class="text-center text-muted p-3">Nenhum processo ainda.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card-footer clearfix">
+        <a href="{% url 'portal:processos' %}" class="btn btn-sm btn-info float-left">Ver Processos</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/chart.js/Chart.min.js' %}"></script>
+<script>
+  // gráfico placeholder
+  const ctx = document.getElementById('salesChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul'],
+      datasets: [{ data: [10, 20, 18, 35, 22, 30, 40], fill: true }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "portal/base.html" %}
+{% block page_title %}Contatos{% endblock %}
+{% block breadcrumb %}Contatos{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Contatos do escritório</h3></div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover">
+        <thead><tr><th>Nome</th><th>Documento</th><th>Tipo</th></tr></thead>
+        <tbody>
+        {% for c in customers %}
+          <tr>
+            <td>{{ c.name }}</td>
+            <td>{{ c.document|default:"—" }}</td>
+            <td>{{ c.type }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="text-center text-muted p-3">Nenhum contato.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,46 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Agenda | JuridicFlow{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'adminlte/plugins/fullcalendar/main.css' %}">
+{% endblock %}
+{% block page_title %}Agenda{% endblock %}
+{% block breadcrumb %}Calendar{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-md-3">
+    <div class="sticky-top mb-3">
+      <div class="card">
+        <div class="card-header"><h4 class="card-title">Eventos Arrastáveis</h4></div>
+        <div class="card-body">
+          <div id="external-events">
+            {% for e in templates %}
+              <div class="external-event" data-color="{{ e.color }}" style="background-color: {{ e.color }}; border-color: {{ e.color }};">{{ e.title }}</div>
+            {% empty %}
+              <p class="text-muted mb-0">Sem modelos ainda. Crie em Configurações → ERP.</p>
+            {% endfor %}
+          </div>
+          <div class="checkbox mt-3">
+            <label for="drop-remove"><input type="checkbox" id="drop-remove"> remover após soltar</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-9">
+    <div class="card card-primary">
+      <div class="card-body p-0">
+        <div id="calendar"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/moment/moment.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/fullcalendar/main.js' %}"></script>
+<script>
+  PortalCalendar.init();
+</script>
+{% endblock %}
