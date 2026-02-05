@@ -122,7 +122,7 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 20,
+    "PAGE_SIZE": PORTAL_PAGINATION_SIZE,  # ✅ MUDADO de 20 para PORTAL_PAGINATION_SIZE
 }
 
 from datetime import timedelta
@@ -158,3 +158,5 @@ JAZZMIN_SETTINGS = {
         "finance.Expense",
     ],
 }
+
+PORTAL_PAGINATION_SIZE = 25

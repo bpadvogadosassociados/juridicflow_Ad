@@ -7,6 +7,7 @@ from django.http import JsonResponse, HttpResponseForbidden, HttpRequest
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_http_methods
 from django.core.paginator import Paginator
+from django.db import models
 
 from apps.portal.forms import PortalLoginForm, SupportTicketForm
 from apps.portal.models import (
@@ -219,8 +220,8 @@ def processo_detail(request, process_id):
     if must: return must
     
     process = get_object_or_404(Process, id=process_id, office=request.office)
-    parties = process.parties.all()
-    
+    parties = process.parties.select_related('customer').all()   
+
     # Prazos relacionados
     from apps.deadlines.models import Deadline
     from django.contrib.contenttypes.models import ContentType
@@ -980,10 +981,6 @@ def prazo_update(request, prazo_id):
     if description is not None:
         deadline.description = description
     
-    deadline.save()
-    
-    return JsonResponse({"ok": True})
-
     # ✅ Atualiza vinculação com processo
     if 'process_id' in payload:
         if process_id:
