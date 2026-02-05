@@ -44,10 +44,49 @@ class ProcessPartySerializer(serializers.ModelSerializer):
 
 class ProcessSerializer(serializers.ModelSerializer):
     parties = ProcessPartySerializer(many=True, required=False)
-
+    deadlines_count = serializers.SerializerMethodField()
+    next_deadline = serializers.SerializerMethodField()
+    
     class Meta:
         model = Process
-        fields = ["id", "number", "court", "subject", "phase", "status", "created_at", "updated_at", "parties"]
+        fields = [
+            "id", "number", "court", "subject", "phase",
+            "status", "created_at", "updated_at",
+            "parties", "deadlines_count", "next_deadline"
+        ]
+    
+    def get_deadlines_count(self, obj):
+        """Retorna quantidade de prazos vinculados"""
+        from django.contrib.contenttypes.models import ContentType
+        from apps.deadlines.models import Deadline
+        
+        ct = ContentType.objects.get_for_model(Process)
+        return Deadline.objects.filter(
+            content_type=ct,
+            object_id=obj.id
+        ).count()
+    
+    def get_next_deadline(self, obj):
+        """Retorna próximo prazo do processo"""
+        from django.contrib.contenttypes.models import ContentType
+        from apps.deadlines.models import Deadline
+        from django.utils import timezone
+        
+        ct = ContentType.objects.get_for_model(Process)
+        next_dl = Deadline.objects.filter(
+            content_type=ct,
+            object_id=obj.id,
+            due_date__gte=timezone.now().date()
+        ).order_by('due_date').first()
+        
+        if next_dl:
+            return {
+                "id": next_dl.id,
+                "title": next_dl.title,
+                "due_date": next_dl.due_date.isoformat(),
+                "priority": next_dl.priority
+            }
+        return None
 
     def create(self, validated_data):
         parties = validated_data.pop("parties", [])
@@ -68,9 +107,59 @@ class ProcessSerializer(serializers.ModelSerializer):
         return instance
 
 class DeadlineSerializer(serializers.ModelSerializer):
+    related_process = serializers.SerializerMethodField()
+    responsible_name = serializers.SerializerMethodField()
+    status_info = serializers.SerializerMethodField()
+    
     class Meta:
         model = Deadline
-        fields = ["id", "title", "due_date", "type", "priority", "description", "responsible", "created_at", "updated_at"]
+        fields = [
+            "id", "title", "due_date", "type", "priority",
+            "description", "responsible", "responsible_name",
+            "created_at", "updated_at",
+            "related_process", "status_info"
+        ]
+
+    def get_responsible_name(self, obj):
+        """Nome do responsável"""
+        if obj.responsible:
+            return obj.responsible.get_full_name() or obj.responsible.email
+        return None
+    
+    def get_related_process(self, obj):
+        """Retorna processo vinculado se existir"""
+        from django.contrib.contenttypes.models import ContentType
+        from apps.processes.models import Process
+        
+        if obj.content_type and obj.object_id:
+            ct_process = ContentType.objects.get_for_model(Process)
+            if obj.content_type == ct_process:
+                try:
+                    process = Process.objects.get(id=obj.object_id)
+                    return {
+                        "id": process.id,
+                        "number": process.number,
+                        "subject": process.subject or ""
+                    }
+                except Process.DoesNotExist:
+                    pass
+        return None
+    
+    def get_status_info(self, obj):
+        """Status calculado (atrasado, hoje, futuro)"""
+        from django.utils import timezone
+        today = timezone.now().date()
+        
+        if obj.due_date < today:
+            return {"label": "overdue", "text": "Atrasado", "class": "danger"}
+        elif obj.due_date == today:
+            return {"label": "today", "text": "Vence hoje", "class": "warning"}
+        else:
+            days = (obj.due_date - today).days
+            if days <= 3:
+                return {"label": "soon", "text": f"Em {days} dias", "class": "info"}
+            else:
+                return {"label": "future", "text": f"Em {days} dias", "class": "secondary"}
 
 class DocumentSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()

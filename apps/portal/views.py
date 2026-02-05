@@ -8,6 +8,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_http_methods
 from django.core.paginator import Paginator
 from django.db import models
+from django.conf import settings
 
 from apps.portal.forms import PortalLoginForm, SupportTicketForm
 from apps.portal.models import (
@@ -128,7 +129,7 @@ def processos(request):
     qs = qs.order_by('-created_at')
     
     # Paginação
-    paginator = Paginator(qs, 25)
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
     page = request.GET.get('page', 1)
     processes = paginator.get_page(page)
     
@@ -831,7 +832,7 @@ def prazos(request):
     qs = qs.order_by('due_date')
     
     # Paginação
-    paginator = Paginator(qs, 30)
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
     page = request.GET.get('page', 1)
     deadlines = paginator.get_page(page)
     
