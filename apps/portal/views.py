@@ -22,6 +22,9 @@ from apps.processes.models import Process, ProcessParty
 from apps.memberships.models import Membership
 from apps.offices.models import Office
 from apps.accounts.models import User
+#import logging
+
+#logger = logging.getLogger(__name__)
 
 def landing(request):
     if request.user.is_authenticated and not (request.user.is_staff or request.user.is_superuser):
@@ -167,49 +170,42 @@ def processo_create(request):
     must = _ensure_office(request)
     if must: return must
     
-    if request.method == "POST":
-        number = request.POST.get('number', '').strip()
-        court = request.POST.get('court', '').strip()
-        subject = request.POST.get('subject', '').strip()
-        phase = request.POST.get('phase', 'initial')
-        status = request.POST.get('status', 'active')
-        
-        if not number:
-            messages.error(request, "Número do processo é obrigatório.")
-            return redirect('portal:processo_create')
-        
-        process = Process.objects.create(
-            organization=request.organization,
-            office=request.office,
-            number=number,
-            court=court,
-            subject=subject,
-            phase=phase,
-            status=status
-        )
-        
-        # Partes (simplificado - depois pode melhorar)
-        ActivityLog.objects.create(
-            organization=request.organization,
-            office=request.office,
-            actor=request.user,
-            verb="process_create",
-            description=f"Novo processo: {number}"
-        )
-        
-        messages.success(request, f"Processo {number} criado com sucesso!")
-        return redirect('portal:processo_detail', process.id)
+    from apps.processes.forms import ProcessForm
     
-    phase_choices = [
-        ('initial', 'Inicial'),
-        ('instruction', 'Instrução'),
-        ('sentence', 'Sentença'),
-        ('appeal', 'Recurso'),
-        ('execution', 'Execução'),
-    ]
+    if request.method == "POST":
+        form = ProcessForm(request.POST)
+        
+        if form.is_valid():
+            process = form.save(commit=False)
+            process.organization = request.organization
+            process.office = request.office
+            
+            try:
+                process.save()
+                
+                ActivityLog.objects.create(
+                    organization=request.organization,
+                    office=request.office,
+                    actor=request.user,
+                    verb="process_create",
+                    description=f"Novo processo: {process.number}"
+                )
+                
+                messages.success(request, f"Processo {process.number} criado com sucesso!")
+                return redirect('portal:processo_detail', process.id)
+                
+            except Exception as e:
+                messages.error(request, f"Erro ao salvar processo: {str(e)}")
+        else:
+            # Mostra erros do form
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f"{form.fields[field].label}: {error}")
+    else:
+        form = ProcessForm()
     
     return render(request, "portal/processo_form.html", {
-        "phase_choices": phase_choices,
+        "form": form,
         "active_page": "processos"
     })
 

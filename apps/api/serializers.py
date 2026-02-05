@@ -55,6 +55,12 @@ class ProcessSerializer(serializers.ModelSerializer):
             "parties", "deadlines_count", "next_deadline"
         ]
     
+    def validate_number(self, value):
+        """Valida número CNJ na API"""
+        from apps.processes.models import validate_cnj
+        validate_cnj(value)
+        return value
+    
     def get_deadlines_count(self, obj):
         """Retorna quantidade de prazos vinculados"""
         from django.contrib.contenttypes.models import ContentType
