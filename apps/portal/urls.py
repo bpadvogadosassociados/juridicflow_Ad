@@ -51,4 +51,13 @@ urlpatterns = [
     path("app/api/chat/thread/create/", views.chat_thread_create, name="chat_thread_create"),
     path("app/api/chat/thread/<int:thread_id>/messages/", views.chat_messages, name="chat_messages"),
     path("app/api/chat/thread/<int:thread_id>/send/", views.chat_send, name="chat_send"),
+
+    # Prazos
+    path("app/prazos/", views.prazos, name="prazos"),
+    path("app/prazos/create/", views.prazo_create, name="prazo_create"),
+    path("app/prazos/<int:prazo_id>/detail/", views.prazo_detail, name="prazo_detail"),
+    path("app/prazos/<int:prazo_id>/update/", views.prazo_update, name="prazo_update"),
+    path("app/prazos/<int:prazo_id>/delete/", views.prazo_delete, name="prazo_delete"),
+    path("app/prazos/calendar/", views.prazos_calendar, name="prazos_calendar"),
+    path("app/prazos/calendar/json/", views.prazos_calendar_json, name="prazos_calendar_json"),
 ]

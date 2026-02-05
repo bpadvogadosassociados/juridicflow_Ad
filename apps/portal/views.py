@@ -381,18 +381,42 @@ def global_search(request):
     must = _ensure_office(request)
     if must and not isinstance(must, HttpResponseForbidden):
         return JsonResponse({"error":"office_required"}, status=400)
+    
     q = (request.GET.get("q") or "").strip()
     results = []
+    
     if not q:
         return JsonResponse({"results": []})
+    
     office = request.office
-    # processos
+    
+    # ✅ Processos (com ID na URL)
     for p in Process.objects.for_request(request).filter(office=office, number__icontains=q)[:5]:
-        results.append({"type":"processo","label":p.number, "icon":"fas fa-balance-scale", "url":"/app/processos/"})
+        results.append({
+            "type": "processo",
+            "label": p.number,
+            "icon": "fas fa-balance-scale",
+            "url": f"/app/processos/{p.id}/"  # ✅ Agora inclui o ID
+        })
+    
+    # Contatos
     for c in Customer.objects.for_request(request).filter(office=office, name__icontains=q)[:5]:
-        results.append({"type":"contato","label":c.name, "icon":"fas fa-users", "url":"/app/contatos/"})
+        results.append({
+            "type": "contato",
+            "label": c.name,
+            "icon": "fas fa-users",
+            "url": "/app/contatos/"
+        })
+    
+    # Tarefas
     for t in KanbanCard.objects.filter(board__office=office, title__icontains=q)[:5]:
-        results.append({"type":"tarefa","label":f"#{t.number} {t.title}", "icon":"fas fa-tasks", "url":"/app/tarefas/"})
+        results.append({
+            "type": "tarefa",
+            "label": f"#{t.number} {t.title}",
+            "icon": "fas fa-tasks",
+            "url": "/app/tarefas/"
+        })
+    
     return JsonResponse({"results": results[:12]})
 
 @login_required
@@ -744,3 +768,352 @@ def chat_send(request, thread_id: int):
         return JsonResponse({"error":"empty"}, status=400)
     ChatMessage.objects.create(thread=thread, sender=request.user, body=body)
     return JsonResponse({"ok": True})
+
+
+# Prazos Views
+
+from apps.deadlines.models import Deadline
+from django.utils import timezone
+from datetime import timedelta
+
+@login_required
+def prazos(request):
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    tipo = request.GET.get('type', '')
+    priority = request.GET.get('priority', '')
+    status_filter = request.GET.get('status', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    
+    qs = Deadline.objects.for_request(request).filter(office=request.office)
+    
+    if search:
+        qs = qs.filter(
+            models.Q(title__icontains=search) |
+            models.Q(description__icontains=search)
+        )
+    
+    if tipo:
+        qs = qs.filter(type=tipo)
+    
+    if priority:
+        qs = qs.filter(priority=priority)
+    
+    # Status calculado (vencido, pendente, concluído)
+    today = timezone.now().date()
+    
+    if status_filter == 'overdue':
+        qs = qs.filter(due_date__lt=today)
+    elif status_filter == 'today':
+        qs = qs.filter(due_date=today)
+    elif status_filter == 'week':
+        qs = qs.filter(due_date__gte=today, due_date__lte=today + timedelta(days=7))
+    
+    if date_from:
+        from django.utils.dateparse import parse_date
+        df = parse_date(date_from)
+        if df:
+            qs = qs.filter(due_date__gte=df)
+    
+    if date_to:
+        from django.utils.dateparse import parse_date
+        dt = parse_date(date_to)
+        if dt:
+            qs = qs.filter(due_date__lte=dt)
+    
+    qs = qs.order_by('due_date')
+    
+    # Paginação
+    paginator = Paginator(qs, 30)
+    page = request.GET.get('page', 1)
+    deadlines = paginator.get_page(page)
+    
+    # Adiciona status dinâmico
+    for d in deadlines:
+        if d.due_date < today:
+            d.status_label = 'overdue'
+            d.status_text = 'Atrasado'
+            d.status_class = 'danger'
+        elif d.due_date == today:
+            d.status_label = 'today'
+            d.status_text = 'Vence hoje'
+            d.status_class = 'warning'
+        elif d.due_date <= today + timedelta(days=3):
+            d.status_label = 'soon'
+            d.status_text = 'Próximo'
+            d.status_class = 'info'
+        else:
+            d.status_label = 'future'
+            d.status_text = 'Futuro'
+            d.status_class = 'secondary'
+    
+    type_choices = Deadline._meta.get_field('type').choices
+    priority_choices = Deadline._meta.get_field('priority').choices
+    
+    return render(request, "portal/prazos.html", {
+        "deadlines": deadlines,
+        "search": search,
+        "tipo": tipo,
+        "priority": priority,
+        "status_filter": status_filter,
+        "date_from": date_from,
+        "date_to": date_to,
+        "type_choices": type_choices,
+        "priority_choices": priority_choices,
+        "active_page": "prazos"
+    })
+
+@login_required
+@require_http_methods(["POST"])
+def prazo_create(request):
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    title = (payload.get('title') or '').strip()
+    due_date = payload.get('due_date')
+    tipo = payload.get('type', 'task')
+    priority = payload.get('priority', 'medium')
+    description = payload.get('description', '')
+    process_id = payload.get('process_id')
+    responsible_id = payload.get('responsible_id')
+    
+    if not title or not due_date:
+        return JsonResponse({"error": "Título e data são obrigatórios"}, status=400)
+    
+    from django.utils.dateparse import parse_date
+    due_date_obj = parse_date(due_date)
+    if not due_date_obj:
+        return JsonResponse({"error": "Data inválida"}, status=400)
+    
+    deadline = Deadline.objects.create(
+        organization=request.organization,
+        office=request.office,
+        title=title,
+        due_date=due_date_obj,
+        type=tipo,
+        priority=priority,
+        description=description
+    )
+    
+    # Vincula a processo se fornecido
+    if process_id:
+        try:
+            from django.contrib.contenttypes.models import ContentType
+            process = Process.objects.get(id=process_id, office=request.office)
+            ct = ContentType.objects.get_for_model(Process)
+            deadline.content_type = ct
+            deadline.object_id = process.id
+            deadline.save()
+        except Process.DoesNotExist:
+            pass  # Ignora se processo não existe
+    
+    # Atribui responsável
+    if responsible_id:
+        try:
+            from apps.accounts.models import User
+            user = User.objects.get(id=responsible_id)
+            deadline.responsible = user
+            deadline.save()
+        except:
+            pass
+    
+    ActivityLog.objects.create(
+        organization=request.organization,
+        office=request.office,
+        actor=request.user,
+        verb="deadline_create",
+        description=f"Novo prazo: {title}"
+    )
+    
+    return JsonResponse({
+        "ok": True,
+        "deadline": {
+            "id": deadline.id,
+            "title": deadline.title,
+            "due_date": deadline.due_date.isoformat()
+        }
+    })
+
+@login_required
+@require_http_methods(["POST"])
+def prazo_update(request, prazo_id):
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    deadline = get_object_or_404(Deadline, id=prazo_id, office=request.office)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    title = (payload.get('title') or '').strip()
+    due_date = payload.get('due_date')
+    tipo = payload.get('type')
+    priority = payload.get('priority')
+    description = payload.get('description')
+    process_id = payload.get('process_id')
+    responsible_id = payload.get('responsible_id')
+    
+    if title:
+        deadline.title = title
+    if due_date:
+        from django.utils.dateparse import parse_date
+        due_date_obj = parse_date(due_date)
+        if due_date_obj:
+            deadline.due_date = due_date_obj
+    if tipo:
+        deadline.type = tipo
+    if priority:
+        deadline.priority = priority
+    if description is not None:
+        deadline.description = description
+    
+    deadline.save()
+    
+    return JsonResponse({"ok": True})
+
+    # ✅ Atualiza vinculação com processo
+    if 'process_id' in payload:
+        if process_id:
+            try:
+                from django.contrib.contenttypes.models import ContentType
+                process = Process.objects.get(id=process_id, office=request.office)
+                ct = ContentType.objects.get_for_model(Process)
+                deadline.content_type = ct
+                deadline.object_id = process.id
+            except Process.DoesNotExist:
+                pass
+        else:
+            # Remove vinculação se process_id for null
+            deadline.content_type = None
+            deadline.object_id = None
+
+    # Atualiza responsável
+    if 'responsible_id' in payload:
+        if responsible_id:
+            try:
+                from apps.accounts.models import User
+                deadline.responsible = User.objects.get(id=responsible_id)
+            except User.DoesNotExist:
+                pass
+        else:
+            deadline.responsible = None
+    
+    deadline.save()
+    
+    return JsonResponse({"ok": True})
+
+@login_required
+@require_http_methods(["POST"])
+def prazo_delete(request, prazo_id):
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    deadline = get_object_or_404(Deadline, id=prazo_id, office=request.office)
+    title = deadline.title
+    deadline.delete()
+    
+    ActivityLog.objects.create(
+        organization=request.organization,
+        office=request.office,
+        actor=request.user,
+        verb="deadline_delete",
+        description=f"Prazo deletado: {title}"
+    )
+    
+    return JsonResponse({"ok": True})
+
+@login_required
+def prazo_detail(request, prazo_id):
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    deadline = get_object_or_404(Deadline, id=prazo_id, office=request.office)
+    
+    # ✅ Retorna process_id se vinculado
+    process_id = None
+    if deadline.content_type and deadline.object_id:
+        from django.contrib.contenttypes.models import ContentType
+        ct_process = ContentType.objects.get_for_model(Process)
+        if deadline.content_type == ct_process:
+            process_id = deadline.object_id
+    
+    return JsonResponse({
+        "id": deadline.id,
+        "title": deadline.title,
+        "due_date": deadline.due_date.isoformat(),
+        "type": deadline.type,
+        "priority": deadline.priority,
+        "description": deadline.description or "",
+        "responsible_id": deadline.responsible_id,
+        "process_id": process_id  # ✅ Adiciona process_id
+    })
+
+@login_required
+def prazos_calendar(request):
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    return render(request, "portal/prazos_calendar.html", {
+        "active_page": "prazos"
+    })
+
+@login_required
+def prazos_calendar_json(request):
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse([], safe=False, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse([], safe=False, status=400)
+    
+    deadlines = Deadline.objects.for_request(request).filter(office=request.office)
+    
+    today = timezone.now().date()
+    events = []
+    
+    for d in deadlines:
+        # Cor baseada em prioridade e status
+        if d.due_date < today:
+            color = '#dc3545'  # Vermelho (atrasado)
+        elif d.priority == 'urgent':
+            color = '#dc3545'  # Vermelho
+        elif d.priority == 'high':
+            color = '#fd7e14'  # Laranja
+        elif d.priority == 'medium':
+            color = '#ffc107'  # Amarelo
+        else:
+            color = '#28a745'  # Verde
+        
+        events.append({
+            "id": d.id,
+            "title": d.title,
+            "start": d.due_date.isoformat(),
+            "backgroundColor": color,
+            "borderColor": color,
+            "extendedProps": {
+                "type": d.type,
+                "priority": d.priority
+            }
+        })
+    
+    return JsonResponse(events, safe=False)
+
+
+# Fim prazos views

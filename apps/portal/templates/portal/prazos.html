@@ -1,0 +1,427 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Prazos | JuridicFlow{% endblock %}
+{% block page_title %}Prazos e Compromissos{% endblock %}
+{% block breadcrumb %}Prazos{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <button class="btn btn-primary" onclick="PrazosUI.openCreateModal(); return false;">
+      <i class="fas fa-plus"></i> Novo Prazo
+    </button>
+    <a href="{% url 'portal:prazos_calendar' %}" class="btn btn-info">
+      <i class="fas fa-calendar"></i> Ver Calendário
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Filtros</h3>
+    <div class="card-tools">
+      <button type="button" class="btn btn-tool" data-card-widget="collapse">
+        <i class="fas fa-minus"></i>
+      </button>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="form-inline">
+      <div class="form-group mr-2">
+        <input type="text" name="search" class="form-control" placeholder="Buscar" value="{{ search }}">
+      </div>
+      
+      <div class="form-group mr-2">
+        <select name="type" class="form-control">
+          <option value="">Todos os tipos</option>
+          {% for value, label in type_choices %}
+            <option value="{{ value }}" {% if tipo == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      
+      <div class="form-group mr-2">
+        <select name="priority" class="form-control">
+          <option value="">Todas prioridades</option>
+          {% for value, label in priority_choices %}
+            <option value="{{ value }}" {% if priority == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      
+      <div class="form-group mr-2">
+        <select name="status" class="form-control">
+          <option value="">Todos os status</option>
+          <option value="overdue" {% if status_filter == 'overdue' %}selected{% endif %}>Atrasados</option>
+          <option value="today" {% if status_filter == 'today' %}selected{% endif %}>Vence hoje</option>
+          <option value="week" {% if status_filter == 'week' %}selected{% endif %}>Próximos 7 dias</option>
+        </select>
+      </div>
+      
+      <div class="form-group mr-2">
+        <input type="date" name="date_from" class="form-control" value="{{ date_from }}" placeholder="De">
+      </div>
+      
+      <div class="form-group mr-2">
+        <input type="date" name="date_to" class="form-control" value="{{ date_to }}" placeholder="Até">
+      </div>
+      
+      <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Filtrar</button>
+      <a href="{% url 'portal:prazos' %}" class="btn btn-secondary ml-2">Limpar</a>
+    </form>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-md-12">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Lista de Prazos ({{ deadlines.paginator.count }} total)</h3>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-hover">
+          <thead>
+            <tr>
+              <th width="40"></th>
+              <th>Título</th>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>Prioridade</th>
+              <th>Status</th>
+              <th>Responsável</th>
+              <th width="120">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in deadlines %}
+            <tr class="{% if d.status_label == 'overdue' %}table-danger{% elif d.status_label == 'today' %}table-warning{% endif %}">
+              <td>
+                {% if d.priority == 'urgent' %}<i class="fas fa-exclamation-circle text-danger" title="Urgente"></i>
+                {% elif d.priority == 'high' %}<i class="fas fa-exclamation-triangle text-warning" title="Alta"></i>
+                {% endif %}
+              </td>
+              <td>
+                <strong>{{ d.title }}</strong>
+                
+                <!-- ✅ Mostrar processo vinculado -->
+                {% if d.content_type and d.object_id %}
+                  {% if d.content_type.model == 'process' %}
+                    <br><small class="text-info">
+                      <i class="fas fa-link"></i> Processo: 
+                      <a href="{% url 'portal:processo_detail' d.object_id %}" target="_blank">
+                        {{ d.related_object.number }}
+                      </a>
+                    </small>
+                  {% endif %}
+                {% endif %}
+                  
+                {% if d.description %}
+                  <br><small class="text-muted">{{ d.description|truncatewords:10 }}</small>
+                {% endif %}
+              </td>
+              <td>
+                {{ d.due_date|date:"d/m/Y" }}<br>
+                <small class="text-muted">
+                  {% now "Y-m-d" as today %}
+                  {% if d.due_date|date:"Y-m-d" < today %}
+                    {{ d.due_date|timesince }} atrás
+                  {% else %}
+                    Em {{ d.due_date|timeuntil }}
+                  {% endif %}
+                </small>
+              </td>
+              <td>{{ d.get_type_display }}</td>
+              <td>
+                {% if d.priority == 'urgent' %}<span class="badge badge-danger">Urgente</span>
+                {% elif d.priority == 'high' %}<span class="badge badge-warning">Alta</span>
+                {% elif d.priority == 'medium' %}<span class="badge badge-info">Média</span>
+                {% else %}<span class="badge badge-secondary">Baixa</span>{% endif %}
+              </td>
+              <td>
+                <span class="badge badge-{{ d.status_class }}">{{ d.status_text }}</span>
+              </td>
+              <td>
+                {% if d.responsible %}
+                  {{ d.responsible.get_full_name|default:d.responsible.email }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td>
+                <button class="btn btn-sm btn-info" onclick="PrazosUI.openEditModal({{ d.id }}); return false;" title="Editar">
+                  <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-sm btn-danger" onclick="PrazosUI.delete({{ d.id }}, '{{ d.title }}'); return false;" title="Deletar">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="8" class="text-center text-muted p-4">Nenhum prazo encontrado.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      
+      {% if deadlines.has_other_pages %}
+      <div class="card-footer clearfix">
+        <ul class="pagination pagination-sm m-0 float-right">
+          {% if deadlines.has_previous %}
+            <li class="page-item"><a class="page-link" href="?page={{ deadlines.previous_page_number }}{% if search %}&search={{ search }}{% endif %}">«</a></li>
+          {% endif %}
+          
+          {% for num in deadlines.paginator.page_range %}
+            {% if deadlines.number == num %}
+              <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+            {% elif num > deadlines.number|add:'-3' and num < deadlines.number|add:'3' %}
+              <li class="page-item"><a class="page-link" href="?page={{ num }}{% if search %}&search={{ search }}{% endif %}">{{ num }}</a></li>
+            {% endif %}
+          {% endfor %}
+          
+          {% if deadlines.has_next %}
+            <li class="page-item"><a class="page-link" href="?page={{ deadlines.next_page_number }}{% if search %}&search={{ search }}{% endif %}">»</a></li>
+          {% endif %}
+        </ul>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Modal Criar/Editar Prazo -->
+<div class="modal fade" id="prazoModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="prazoModalTitle">Novo Prazo</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="prazo-form" onsubmit="return PrazosUI.save(event);">
+          <input type="hidden" id="prazo-id">
+          
+          <div class="form-group">
+            <label>Título *</label>
+            <input type="text" class="form-control" id="prazo-title" required>
+          </div>
+          
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Data de Vencimento *</label>
+                <input type="date" class="form-control" id="prazo-due-date" required>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Tipo</label>
+                <select class="form-control" id="prazo-type">
+                  {% for value, label in type_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label>Prioridade</label>
+            <select class="form-control" id="prazo-priority">
+              {% for value, label in priority_choices %}
+                <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          
+          <!-- ✅ NOVO: Campo para vincular processo -->
+          <div class="form-group">
+            <label>Vincular a Processo (opcional)</label>
+            <input type="text" class="form-control" id="prazo-process-search" placeholder="Digite o número do processo">
+            <input type="hidden" id="prazo-process-id">
+            <div id="process-search-results" class="list-group mt-2" style="max-height: 200px; overflow-y: auto;"></div>
+            <small class="text-muted">Digite para buscar e vincular este prazo a um processo.</small>
+          </div>
+          
+          <div class="form-group">
+            <label>Descrição</label>
+            <textarea class="form-control" id="prazo-description" rows="3"></textarea>
+          </div>
+          
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const PrazosUI = {
+  processSearchTimeout: null,
+
+  openCreateModal() {
+    document.getElementById('prazo-id').value = '';
+    document.getElementById('prazo-title').value = '';
+    document.getElementById('prazo-due-date').value = '';
+    document.getElementById('prazo-type').value = 'legal';
+    document.getElementById('prazo-priority').value = 'medium';
+    document.getElementById('prazo-description').value = '';
+    document.getElementById('prazo-process-id').value = '';
+    document.getElementById('prazo-process-search').value = '';
+    document.getElementById('process-search-results').innerHTML = '';
+    document.getElementById('prazoModalTitle').textContent = 'Novo Prazo';
+    $('#prazoModal').modal('show');
+  },
+
+  openEditModal(prazoId) {
+    fetch(`/app/prazos/${prazoId}/detail/`)
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('prazo-id').value = data.id;
+        document.getElementById('prazo-title').value = data.title;
+        document.getElementById('prazo-due-date').value = data.due_date;
+        document.getElementById('prazo-type').value = data.type;
+        document.getElementById('prazo-priority').value = data.priority;
+        document.getElementById('prazo-description').value = data.description;
+        document.getElementById('prazo-process-id').value = data.process_id || '';
+        
+        // Se tiver processo vinculado, busca o número
+        if (data.process_id) {
+          this.loadProcessName(data.process_id);
+        } else {
+          document.getElementById('prazo-process-search').value = '';
+        }
+        
+        document.getElementById('prazoModalTitle').textContent = 'Editar Prazo';
+        $('#prazoModal').modal('show');
+      });
+  },
+
+  loadProcessName(processId) {
+    fetch(`/app/api/search/?q=${processId}`)
+      .then(r => r.json())
+      .then(data => {
+        const process = data.results.find(r => r.type === 'processo');
+        if (process) {
+          document.getElementById('prazo-process-search').value = process.label;
+        }
+      });
+  },
+
+  save(e) {
+    e.preventDefault();
+    
+    const prazoId = document.getElementById('prazo-id').value;
+    const data = {
+      title: document.getElementById('prazo-title').value,
+      due_date: document.getElementById('prazo-due-date').value,
+      type: document.getElementById('prazo-type').value,
+      priority: document.getElementById('prazo-priority').value,
+      description: document.getElementById('prazo-description').value,
+      process_id: document.getElementById('prazo-process-id').value || null
+    };
+    
+    const url = prazoId ? `/app/prazos/${prazoId}/update/` : '/app/prazos/create/';
+    
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCookie('csrftoken')
+      },
+      body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(() => {
+      $('#prazoModal').modal('hide');
+      window.location.reload();
+    })
+    .catch(err => {
+      alert('Erro ao salvar prazo: ' + err.message);
+    });
+    
+    return false;
+  },
+
+  delete(prazoId, title) {
+    if (!confirm(`Deletar prazo "${title}"?`)) return;
+    
+    fetch(`/app/prazos/${prazoId}/delete/`, {
+      method: 'POST',
+      headers: {'X-CSRFToken': getCookie('csrftoken')}
+    })
+    .then(() => window.location.reload());
+  }
+};
+
+// ✅ Busca de processos ao digitar
+document.addEventListener('DOMContentLoaded', () => {
+  const searchInput = document.getElementById('prazo-process-search');
+  
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      clearTimeout(PrazosUI.processSearchTimeout);
+      
+      const query = e.target.value.trim();
+      
+      if (query.length < 3) {
+        document.getElementById('process-search-results').innerHTML = '';
+        return;
+      }
+      
+      PrazosUI.processSearchTimeout = setTimeout(() => {
+        fetch(`/app/api/search/?q=${encodeURIComponent(query)}`)
+          .then(r => r.json())
+          .then(data => {
+            const container = document.getElementById('process-search-results');
+            const processes = data.results.filter(r => r.type === 'processo');
+            
+            if (processes.length === 0) {
+              container.innerHTML = '<div class="list-group-item text-muted">Nenhum processo encontrado.</div>';
+              return;
+            }
+            
+            let html = '';
+            processes.forEach(p => {
+              // Extrai ID do processo da URL (assume /app/processos/{id}/)
+              const processId = p.url.match(/\/processos\/(\d+)/)?.[1];
+              
+              html += `
+                <a href="#" class="list-group-item list-group-item-action" onclick="PrazosUI.selectProcess('${processId}', '${p.label}'); return false;">
+                  <i class="${p.icon}"></i> ${p.label}
+                </a>
+              `;
+            });
+            
+            container.innerHTML = html;
+          });
+      }, 300);
+    });
+  }
+});
+
+// ✅ Selecionar processo da busca
+PrazosUI.selectProcess = function(processId, processLabel) {
+  document.getElementById('prazo-process-id').value = processId;
+  document.getElementById('prazo-process-search').value = processLabel;
+  document.getElementById('process-search-results').innerHTML = '';
+};
+
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+</script>
+{% endblock %}
