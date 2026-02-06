@@ -218,7 +218,7 @@ class CustomerDocument(OrganizationScopedModel):
     customer = models.ForeignKey(
         Customer,
         on_delete=models.CASCADE,
-        related_name="documents",
+        related_name="customer_documents",
         verbose_name="Contato"
     )
     

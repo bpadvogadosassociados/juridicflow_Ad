@@ -84,4 +84,20 @@ urlpatterns = [
     path("app/financeiro/despesas/<int:expense_id>/update/", views.financeiro_despesa_update, name="financeiro_despesa_update"),
     path("app/financeiro/despesas/<int:expense_id>/delete/", views.financeiro_despesa_delete, name="financeiro_despesa_delete"),
     path("app/financeiro/despesas/<int:expense_id>/detail/", views.financeiro_despesa_detail, name="financeiro_despesa_detail"),
+
+    # Documentos
+    path("app/documentos/dashboard/", views.documentos_dashboard, name="documentos_dashboard"),
+    path("app/documentos/", views.documentos, name="documentos"),
+    path("app/documentos/upload/", views.documento_upload, name="documento_upload"),
+    path("app/documentos/<int:document_id>/", views.documento_detail, name="documento_detail"),
+    path("app/documentos/<int:document_id>/download/", views.documento_download, name="documento_download"),
+    path("app/documentos/<int:document_id>/delete/", views.documento_delete, name="documento_delete"),
+    path("app/documentos/<int:document_id>/version/", views.documento_version_create, name="documento_version_create"),
+    path("app/documentos/version/<int:version_id>/download/", views.documento_version_download, name="documento_version_download"),
+    path("app/documentos/<int:document_id>/share/", views.documento_share_create, name="documento_share_create"),
+    path("app/documentos/share/<int:share_id>/delete/", views.documento_share_delete, name="documento_share_delete"),
+    path("app/documentos/<int:document_id>/comment/", views.documento_comment_create, name="documento_comment_create"),
+    path("app/pastas/", views.pastas, name="pastas"),
+    path("app/pastas/create/", views.pasta_create, name="pasta_create"),
+    path("app/pastas/<int:folder_id>/delete/", views.pasta_delete, name="pasta_delete"),
 ]

@@ -5,12 +5,14 @@ from django.db.models import Q, Count, Sum
 from django.db.models.functions import TruncMonth
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, HttpResponseForbidden, HttpRequest
+from django.http import JsonResponse, HttpResponseForbidden, HttpRequest, FileResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_http_methods
 from django.core.paginator import Paginator
 from django.db import models
 from django.conf import settings
+from decimal import Decimal
+from apps.documents.models import Document, DocumentVersion, DocumentShare, DocumentComment, Folder, DocumentFolder
 
 from apps.portal.forms import PortalLoginForm, SupportTicketForm
 from apps.portal.models import (
@@ -486,7 +488,7 @@ def contato_detail(request, customer_id):
     interactions = customer.interactions.select_related('created_by').order_by('-date')[:20]
     
     # Documentos
-    documents = customer.documents.select_related('uploaded_by').order_by('-created_at')
+    documents = customer.customer_documents.select_related('uploaded_by').order_by('-created_at')
     
     # Processos vinculados
     from apps.processes.models import ProcessParty
@@ -2275,3 +2277,556 @@ def financeiro_despesa_detail(request, expense_id):
     })
 
 # Fim finance Views
+
+#
+
+
+
+# ==================== DASHBOARD DOCUMENTOS ====================
+
+@login_required
+def documentos_dashboard(request):
+    """Dashboard de documentos"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    office = request.office
+    
+    # Estatísticas
+    total = Document.objects.filter(office=office).count()
+    by_category = Document.objects.filter(office=office).values('category').annotate(count=Count('id')).order_by('-count')[:10]
+    by_status = Document.objects.filter(office=office).values('status').annotate(count=Count('id'))
+    
+    # Tamanho total
+    total_size = sum([d.file_size for d in Document.objects.filter(office=office)])
+    total_size_mb = round(total_size / (1024 * 1024), 2)
+    
+    # Recentes
+    recent = Document.objects.filter(office=office).select_related('uploaded_by').order_by('-created_at')[:10]
+    
+    # Vencidos
+    from django.utils import timezone
+    expired = Document.objects.filter(
+        office=office,
+        expiry_date__lt=timezone.now().date()
+    ).order_by('expiry_date')[:10]
+    
+    # Templates
+    templates = Document.objects.filter(office=office, is_template=True).order_by('title')[:10]
+    
+    # Top tags
+    all_docs = Document.objects.filter(office=office).exclude(tags='')
+    tags_count = {}
+    for d in all_docs:
+        for tag in d.tag_list:
+            tags_count[tag] = tags_count.get(tag, 0) + 1
+    top_tags = sorted(tags_count.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    context = {
+        'total': total,
+        'total_size_mb': total_size_mb,
+        'by_category': list(by_category),
+        'by_status': list(by_status),
+        'recent': recent,
+        'expired': expired,
+        'templates': templates,
+        'top_tags': top_tags,
+        'active_page': 'documentos'
+    }
+    
+    return render(request, 'portal/documentos_dashboard.html', context)
+
+
+# ==================== LISTA E CRUD ====================
+
+@login_required
+def documentos(request):
+    """Lista de documentos com filtros"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    category_filter = request.GET.get('category', '')
+    status_filter = request.GET.get('status', '')
+    tag_filter = request.GET.get('tag', '')
+    folder_id = request.GET.get('folder', '')
+    
+    qs = Document.objects.filter(office=request.office).select_related('uploaded_by', 'process', 'customer')
+    
+    if search:
+        qs = qs.filter(
+            Q(title__icontains=search) |
+            Q(description__icontains=search) |
+            Q(tags__icontains=search)
+        )
+    
+    if category_filter:
+        qs = qs.filter(category=category_filter)
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if tag_filter:
+        qs = qs.filter(tags__icontains=tag_filter)
+    
+    if folder_id:
+        qs = qs.filter(folder_links__folder_id=folder_id)
+    
+    qs = qs.order_by('-created_at')
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    documents = paginator.get_page(page)
+    
+    # Pastas
+    folders = Folder.objects.filter(office=request.office, parent__isnull=True).order_by('name')
+    
+    # Tags
+    all_tags = set()
+    for d in Document.objects.filter(office=request.office).exclude(tags=''):
+        all_tags.update(d.tag_list)
+    
+    context = {
+        'documents': documents,
+        'folders': folders,
+        'search': search,
+        'category_filter': category_filter,
+        'status_filter': status_filter,
+        'tag_filter': tag_filter,
+        'folder_id': folder_id,
+        'category_choices': Document.CATEGORY_CHOICES,
+        'status_choices': Document.STATUS_CHOICES,
+        'all_tags': sorted(all_tags),
+        'active_page': 'documentos'
+    }
+    
+    return render(request, 'portal/documentos.html', context)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def documento_upload(request):
+    """Upload de documento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    if request.method == "POST":
+        if 'file' not in request.FILES:
+            messages.error(request, "Nenhum arquivo selecionado.")
+            return redirect('portal:documento_upload')
+        
+        file = request.FILES['file']
+        data = request.POST
+        
+        try:
+            document = Document.objects.create(
+                organization=request.organization,
+                office=request.office,
+                title=data.get('title', file.name).strip(),
+                description=data.get('description', '').strip(),
+                category=data.get('category', 'other'),
+                status=data.get('status', 'draft'),
+                file=file,
+                tags=data.get('tags', '').strip(),
+                is_confidential=data.get('is_confidential') == 'on',
+                is_template=data.get('is_template') == 'on',
+                uploaded_by=request.user
+            )
+            
+            # Vincular processo
+            if data.get('process_id'):
+                from apps.processes.models import Process
+                try:
+                    process = Process.objects.get(id=data.get('process_id'), office=request.office)
+                    document.process = process
+                    document.save()
+                except Process.DoesNotExist:
+                    pass
+            
+            # Vincular cliente
+            if data.get('customer_id'):
+                from apps.customers.models import Customer
+                try:
+                    customer = Customer.objects.get(id=data.get('customer_id'), office=request.office)
+                    document.customer = customer
+                    document.save()
+                except Customer.DoesNotExist:
+                    pass
+            
+            # Adicionar a pasta
+            if data.get('folder_id'):
+                try:
+                    folder = Folder.objects.get(id=data.get('folder_id'), office=request.office)
+                    DocumentFolder.objects.create(
+                        document=document,
+                        folder=folder,
+                        added_by=request.user
+                    )
+                except Folder.DoesNotExist:
+                    pass
+            
+            ActivityLog.objects.create(
+                organization=request.organization,
+                office=request.office,
+                actor=request.user,
+                verb="document_upload",
+                description=f"Upload: {document.title}"
+            )
+            
+            messages.success(request, f"Documento {document.title} enviado com sucesso!")
+            return redirect('portal:documento_detail', document.id)
+            
+        except Exception as e:
+            messages.error(request, f"Erro ao enviar documento: {str(e)}")
+    
+    # GET
+    folders = Folder.objects.filter(office=request.office).order_by('name')
+    
+    context = {
+        'category_choices': Document.CATEGORY_CHOICES,
+        'status_choices': Document.STATUS_CHOICES,
+        'folders': folders,
+        'active_page': 'documentos'
+    }
+    
+    return render(request, 'portal/documento_upload.html', context)
+
+
+@login_required
+def documento_detail(request, document_id):
+    """Detalhes do documento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    document = get_object_or_404(
+        Document.objects.select_related('uploaded_by', 'process', 'customer'),
+        id=document_id,
+        office=request.office
+    )
+    
+    # Versões
+    versions = document.versions.select_related('created_by').order_by('-version_number')
+    
+    # Compartilhamentos
+    shares = document.shares.select_related('shared_with', 'shared_by').order_by('-created_at')
+    
+    # Comentários
+    comments = document.comments.select_related('author').order_by('-created_at')
+    
+    # Pastas
+    folders = document.folder_links.select_related('folder').all()
+    
+    context = {
+        'document': document,
+        'versions': versions,
+        'shares': shares,
+        'comments': comments,
+        'folders': folders,
+        'active_page': 'documentos'
+    }
+    
+    return render(request, 'portal/documento_detail.html', context)
+
+
+@login_required
+def documento_download(request, document_id):
+    """Download de documento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    document = get_object_or_404(Document, id=document_id, office=request.office)
+    
+    ActivityLog.objects.create(
+        organization=request.organization,
+        office=request.office,
+        actor=request.user,
+        verb="document_download",
+        description=f"Download: {document.title}"
+    )
+    
+    return FileResponse(document.file.open('rb'), as_attachment=True, filename=document.file.name)
+
+
+@login_required
+@require_http_methods(["POST"])
+def documento_delete(request, document_id):
+    """Deletar documento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    document = get_object_or_404(Document, id=document_id, office=request.office)
+    title = document.title
+    
+    # Deletar arquivo físico
+    if document.file:
+        document.file.delete()
+    
+    document.delete()
+    
+    ActivityLog.objects.create(
+        organization=request.organization,
+        office=request.office,
+        actor=request.user,
+        verb="document_delete",
+        description=f"Documento deletado: {title}"
+    )
+    
+    return JsonResponse({"ok": True})
+
+
+# ==================== VERSÕES ====================
+
+@login_required
+@require_http_methods(["POST"])
+def documento_version_create(request, document_id):
+    """Criar nova versão"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    document = get_object_or_404(Document, id=document_id, office=request.office)
+    
+    if 'file' not in request.FILES:
+        return JsonResponse({"error": "Arquivo não enviado"}, status=400)
+    
+    file = request.FILES['file']
+    changes = request.POST.get('changes_description', '').strip()
+    
+    # Próximo número de versão
+    last_version = document.versions.order_by('-version_number').first()
+    next_version = (last_version.version_number + 1) if last_version else 1
+    
+    version = DocumentVersion.objects.create(
+        document=document,
+        version_number=next_version,
+        file=file,
+        changes_description=changes,
+        created_by=request.user
+    )
+    
+    return JsonResponse({
+        "ok": True,
+        "version": {
+            "id": version.id,
+            "version_number": version.version_number,
+            "created_at": version.created_at.strftime('%d/%m/%Y %H:%M')
+        }
+    })
+
+
+@login_required
+def documento_version_download(request, version_id):
+    """Download de versão específica"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    version = get_object_or_404(
+        DocumentVersion.objects.select_related('document'),
+        id=version_id,
+        document__office=request.office
+    )
+    
+    return FileResponse(version.file.open('rb'), as_attachment=True, filename=version.file.name)
+
+
+# ==================== COMPARTILHAMENTO ====================
+
+@login_required
+@require_http_methods(["POST"])
+def documento_share_create(request, document_id):
+    """Compartilhar documento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    document = get_object_or_404(Document, id=document_id, office=request.office)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    user_id = payload.get('user_id')
+    can_edit = payload.get('can_edit', False)
+    can_download = payload.get('can_download', True)
+    
+    from apps.accounts.models import User
+    try:
+        user = User.objects.get(id=user_id)
+        
+        share, created = DocumentShare.objects.get_or_create(
+            organization=request.organization,
+            office=request.office,
+            document=document,
+            shared_with=user,
+            defaults={
+                'shared_by': request.user,
+                'can_edit': can_edit,
+                'can_download': can_download
+            }
+        )
+        
+        if not created:
+            share.can_edit = can_edit
+            share.can_download = can_download
+            share.save()
+        
+        return JsonResponse({"ok": True, "created": created})
+        
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Usuário não encontrado"}, status=404)
+
+
+@login_required
+@require_http_methods(["POST"])
+def documento_share_delete(request, share_id):
+    """Remover compartilhamento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    share = get_object_or_404(DocumentShare, id=share_id, office=request.office)
+    share.delete()
+    
+    return JsonResponse({"ok": True})
+
+
+# ==================== COMENTÁRIOS ====================
+
+@login_required
+@require_http_methods(["POST"])
+def documento_comment_create(request, document_id):
+    """Criar comentário"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    document = get_object_or_404(Document, id=document_id, office=request.office)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    comment_text = payload.get('comment', '').strip()
+    
+    if not comment_text:
+        return JsonResponse({"error": "Comentário vazio"}, status=400)
+    
+    comment = DocumentComment.objects.create(
+        organization=request.organization,
+        office=request.office,
+        document=document,
+        author=request.user,
+        comment=comment_text
+    )
+    
+    return JsonResponse({
+        "ok": True,
+        "comment": {
+            "id": comment.id,
+            "author": comment.author.get_full_name() or comment.author.email,
+            "comment": comment.comment,
+            "created_at": comment.created_at.strftime('%d/%m/%Y %H:%M')
+        }
+    })
+
+
+# ==================== PASTAS ====================
+
+@login_required
+def pastas(request):
+    """Gestão de pastas"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    folders = Folder.objects.filter(office=request.office, parent__isnull=True).prefetch_related('subfolders').order_by('name')
+    
+    context = {
+        'folders': folders,
+        'active_page': 'documentos'
+    }
+    
+    return render(request, 'portal/pastas.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def pasta_create(request):
+    """Criar pasta"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    name = payload.get('name', '').strip()
+    parent_id = payload.get('parent_id')
+    
+    if not name:
+        return JsonResponse({"error": "Nome obrigatório"}, status=400)
+    
+    parent = None
+    if parent_id:
+        try:
+            parent = Folder.objects.get(id=parent_id, office=request.office)
+        except Folder.DoesNotExist:
+            pass
+    
+    folder = Folder.objects.create(
+        organization=request.organization,
+        office=request.office,
+        name=name,
+        parent=parent,
+        created_by=request.user
+    )
+    
+    return JsonResponse({
+        "ok": True,
+        "folder": {
+            "id": folder.id,
+            "name": folder.name,
+            "full_path": folder.full_path
+        }
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def pasta_delete(request, folder_id):
+    """Deletar pasta"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    folder = get_object_or_404(Folder, id=folder_id, office=request.office)
+    
+    # Verifica se tem documentos ou subpastas
+    if folder.documents.exists() or folder.subfolders.exists():
+        return JsonResponse({"error": "Pasta não está vazia"}, status=400)
+    
+    folder.delete()
+    return JsonResponse({"ok": True})
+
+#

@@ -140,6 +140,8 @@ class Invoice(OrganizationScopedModel):
     number = models.CharField(
         "Número",
         max_length=50,
+        blank=True,
+        null=True,
         help_text="Número da fatura (ex: 2024/001)"
     )
     

@@ -169,7 +169,12 @@
               <i class="nav-icon fas fa-balance-scale"></i><p>Processos</p>
             </a>
           </li>
-          <li class="nav-item"><a href="#" class="nav-link"><i class="nav-icon fas fa-folder-open"></i><p>Documentos</p></a></li>
+          <li class="nav-item">
+            <a href="{% url 'portal:documentos_dashboard' %}" class="nav-link">
+              <i class="nav-icon fas fa-folder-open"></i>
+              <p>Documentos</p>
+            </a>
+          </li>
           <li class="nav-item"><a href="{% url 'portal:prazos' %}" class="nav-link {% if active_page == 'prazos' %}active{% endif %}"><i class="nav-icon fas fa-clock"></i><p>Prazos</p></a></li>
           <li class="nav-item"><a href="#" class="nav-link"><i class="nav-icon fas fa-newspaper"></i><p>Publicações</p></a></li>
           <li class="nav-item">
