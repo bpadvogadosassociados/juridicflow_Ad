@@ -1,0 +1,70 @@
+{% extends "portal/base.html" %}
+{% block page_title %}{% if customer %}Editar{% else %}Novo{% endif %} Contato{% endblock %}
+{% block breadcrumb %}Contatos / {% if customer %}Editar{% else %}Novo{% endif %}{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-md-10">
+    <form method="post">{% csrf_token %}
+      <div class="card card-primary card-outline card-tabs">
+        <div class="card-header p-0 pt-1">
+          <ul class="nav nav-tabs">
+            <li class="nav-item"><a class="nav-link active" href="#tab1" data-toggle="tab">Dados Básicos</a></li>
+            <li class="nav-item"><a class="nav-link" href="#tab2" data-toggle="tab">Contato</a></li>
+            <li class="nav-item"><a class="nav-link" href="#tab3" data-toggle="tab">Endereço</a></li>
+            <li class="nav-item"><a class="nav-link" href="#tab4" data-toggle="tab">Complementares</a></li>
+            <li class="nav-item"><a class="nav-link" href="#tab5" data-toggle="tab">CRM</a></li>
+          </ul>
+        </div>
+        <div class="card-body">
+          <div class="tab-content">
+            <div class="tab-pane active" id="tab1">
+              <div class="form-group"><label>Nome/Razão Social *</label><input type="text" class="form-control" name="name" value="{{ customer.name|default:'' }}" required></div>
+              <div class="row">
+                <div class="col-md-4"><div class="form-group"><label>Tipo</label><select class="form-control" name="type">{% for v, l in type_choices %}<option value="{{ v }}" {% if customer.type == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div></div>
+                <div class="col-md-4"><div class="form-group"><label>Status</label><select class="form-control" name="status">{% for v, l in status_choices %}<option value="{{ v }}" {% if customer.status == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div></div>
+                <div class="col-md-4"><div class="form-group"><label>CPF/CNPJ</label><input type="text" class="form-control" name="document" value="{{ customer.document|default:'' }}"></div></div>
+              </div>
+            </div>
+            <div class="tab-pane" id="tab2">
+              <div class="form-group"><label>Email</label><input type="email" class="form-control" name="email" value="{{ customer.email|default:'' }}"></div>
+              <div class="row">
+                <div class="col-md-4"><div class="form-group"><label>Telefone</label><input type="text" class="form-control" name="phone" value="{{ customer.phone|default:'' }}"></div></div>
+                <div class="col-md-4"><div class="form-group"><label>Telefone 2</label><input type="text" class="form-control" name="phone_secondary" value="{{ customer.phone_secondary|default:'' }}"></div></div>
+                <div class="col-md-4"><div class="form-group"><label>WhatsApp</label><input type="text" class="form-control" name="whatsapp" value="{{ customer.whatsapp|default:'' }}"></div></div>
+              </div>
+            </div>
+            <div class="tab-pane" id="tab3">
+              <div class="row">
+                <div class="col-md-8"><div class="form-group"><label>Rua</label><input type="text" class="form-control" name="address_street" value="{{ customer.address_street|default:'' }}"></div></div>
+                <div class="col-md-4"><div class="form-group"><label>Número</label><input type="text" class="form-control" name="address_number" value="{{ customer.address_number|default:'' }}"></div></div>
+              </div>
+              <div class="form-group"><label>Complemento</label><input type="text" class="form-control" name="address_complement" value="{{ customer.address_complement|default:'' }}"></div>
+              <div class="row">
+                <div class="col-md-4"><div class="form-group"><label>Bairro</label><input type="text" class="form-control" name="address_neighborhood" value="{{ customer.address_neighborhood|default:'' }}"></div></div>
+                <div class="col-md-4"><div class="form-group"><label>Cidade</label><input type="text" class="form-control" name="address_city" value="{{ customer.address_city|default:'' }}"></div></div>
+                <div class="col-md-2"><div class="form-group"><label>UF</label><input type="text" class="form-control" name="address_state" value="{{ customer.address_state|default:'' }}" maxlength="2"></div></div>
+                <div class="col-md-2"><div class="form-group"><label>CEP</label><input type="text" class="form-control" name="address_zipcode" value="{{ customer.address_zipcode|default:'' }}"></div></div>
+              </div>
+            </div>
+            <div class="tab-pane" id="tab4">
+              <div class="form-group"><label>Profissão (PF)</label><input type="text" class="form-control" name="profession" value="{{ customer.profession|default:'' }}"></div>
+              <div class="form-group"><label>Nome Fantasia (PJ)</label><input type="text" class="form-control" name="company_name" value="{{ customer.company_name|default:'' }}"></div>
+              <div class="form-group"><label>Observações</label><textarea class="form-control" name="notes" rows="3">{{ customer.notes|default:'' }}</textarea></div>
+              {% if customer %}<div class="form-group"><label>Notas Internas</label><textarea class="form-control" name="internal_notes" rows="2">{{ customer.internal_notes|default:'' }}</textarea></div>{% endif %}
+            </div>
+            <div class="tab-pane" id="tab5">
+              <div class="form-group"><label>Origem</label><select class="form-control" name="origin">{% for v, l in origin_choices %}<option value="{{ v }}" {% if customer.origin == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+              <div class="form-group"><label>Nome do Indicador</label><input type="text" class="form-control" name="referral_name" value="{{ customer.referral_name|default:'' }}"></div>
+              <div class="form-group"><label>Tags (separadas por vírgula)</label><input type="text" class="form-control" name="tags" value="{{ customer.tags|default:'' }}" placeholder="vip, urgente, trabalhista"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card-footer">
+          <button type="submit" class="btn btn-primary">Salvar</button>
+          <a href="{% if customer %}{% url 'portal:contato_detail' customer.id %}{% else %}{% url 'portal:contatos' %}{% endif %}" class="btn btn-secondary">Cancelar</a>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -16,7 +16,6 @@ urlpatterns = [
     path("app/processos/novo/", views.processo_create, name="processo_create"),
     path("app/processos/<int:process_id>/", views.processo_detail, name="processo_detail"),
     path("app/processos/<int:process_id>/delete/", views.processo_delete, name="processo_delete"),
-    path("app/contatos/", views.contatos, name="contatos"),
     path("app/suporte/novo/", views.support_new, name="support_new"),
     path("app/suporte/", views.support_inbox, name="support_inbox"),
     path("app/configuracoes/", views.settings_view, name="settings"),
@@ -60,4 +59,15 @@ urlpatterns = [
     path("app/prazos/<int:prazo_id>/delete/", views.prazo_delete, name="prazo_delete"),
     path("app/prazos/calendar/", views.prazos_calendar, name="prazos_calendar"),
     path("app/prazos/calendar/json/", views.prazos_calendar_json, name="prazos_calendar_json"),
+
+# Contatos/CRM
+    path("app/contatos/dashboard/", views.contatos_dashboard, name="contatos_dashboard"),
+    path("app/contatos/", views.contatos, name="contatos"),
+    path("app/contatos/novo/", views.contato_create, name="contato_create"),
+    path("app/contatos/<int:customer_id>/", views.contato_detail, name="contato_detail"),
+    path("app/contatos/<int:customer_id>/editar/", views.contato_edit, name="contato_edit"),
+    path("app/contatos/<int:customer_id>/delete/", views.contato_delete, name="contato_delete"),
+    path("app/contatos/<int:customer_id>/interaction/", views.contato_interaction_create, name="contato_interaction_create"),
+    path("app/contatos/export/", views.contatos_export, name="contatos_export"),
+    path("app/contatos/import/", views.contatos_import, name="contatos_import"),
 ]
