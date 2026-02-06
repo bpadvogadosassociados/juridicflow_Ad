@@ -70,4 +70,18 @@ urlpatterns = [
     path("app/contatos/<int:customer_id>/interaction/", views.contato_interaction_create, name="contato_interaction_create"),
     path("app/contatos/export/", views.contatos_export, name="contatos_export"),
     path("app/contatos/import/", views.contatos_import, name="contatos_import"),
+
+    # Financeiro
+    path("app/financeiro/", views.financeiro_dashboard, name="financeiro_dashboard"),
+    path("app/financeiro/contratos/", views.financeiro_contratos, name="financeiro_contratos"),
+    path("app/financeiro/contratos/novo/", views.financeiro_contrato_create, name="financeiro_contrato_create"),
+    path("app/financeiro/contratos/<int:agreement_id>/", views.financeiro_contrato_detail, name="financeiro_contrato_detail"),
+    path("app/financeiro/faturas/", views.financeiro_faturas, name="financeiro_faturas"),
+    path("app/financeiro/faturas/create/", views.financeiro_fatura_create, name="financeiro_fatura_create"),
+    path("app/financeiro/faturas/<int:invoice_id>/pagamento/", views.financeiro_fatura_registrar_pagamento, name="financeiro_fatura_registrar_pagamento"),
+    path("app/financeiro/despesas/", views.financeiro_despesas, name="financeiro_despesas"),
+    path("app/financeiro/despesas/create/", views.financeiro_despesa_create, name="financeiro_despesa_create"),
+    path("app/financeiro/despesas/<int:expense_id>/update/", views.financeiro_despesa_update, name="financeiro_despesa_update"),
+    path("app/financeiro/despesas/<int:expense_id>/delete/", views.financeiro_despesa_delete, name="financeiro_despesa_delete"),
+    path("app/financeiro/despesas/<int:expense_id>/detail/", views.financeiro_despesa_detail, name="financeiro_despesa_detail"),
 ]

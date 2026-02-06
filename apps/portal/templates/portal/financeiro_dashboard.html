@@ -1,0 +1,300 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Dashboard Financeiro | JuridicFlow{% endblock %}
+{% block page_title %}Dashboard Financeiro{% endblock %}
+{% block breadcrumb %}Financeiro / Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+  .fin-kpi-card { border-left: 4px solid #007bff; }
+  .fin-kpi-card.success { border-left-color: #28a745; }
+  .fin-kpi-card.danger { border-left-color: #dc3545; }
+  .fin-kpi-card.warning { border-left-color: #ffc107; }
+  .fin-stat-value { font-size: 2rem; font-weight: bold; }
+  .fin-stat-label { color: #6c757d; font-size: 0.9rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Filtros -->
+<div class="row mb-3">
+  <div class="col-md-12">
+    <div class="btn-group">
+      <a href="?period=month" class="btn btn-sm {% if period == 'month' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+        Este Mês
+      </a>
+      <a href="?period=quarter" class="btn btn-sm {% if period == 'quarter' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+        Trimestre
+      </a>
+      <a href="?period=year" class="btn btn-sm {% if period == 'year' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+        Este Ano
+      </a>
+      <a href="?period=all" class="btn btn-sm {% if period == 'all' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+        Tudo
+      </a>
+    </div>
+    
+    <div class="float-right">
+      <a href="{% url 'portal:financeiro_contratos' %}" class="btn btn-sm btn-secondary">
+        <i class="fas fa-file-contract"></i> Contratos
+      </a>
+      <a href="{% url 'portal:financeiro_faturas' %}" class="btn btn-sm btn-secondary">
+        <i class="fas fa-file-invoice-dollar"></i> Faturas
+      </a>
+      <a href="{% url 'portal:financeiro_despesas' %}" class="btn btn-sm btn-secondary">
+        <i class="fas fa-receipt"></i> Despesas
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- KPIs -->
+<div class="row">
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-success">
+      <div class="inner">
+        <h3>R$ {{ total_received|floatformat:2 }}</h3>
+        <p>Receitas</p>
+      </div>
+      <div class="icon">
+        <i class="fas fa-dollar-sign"></i>
+      </div>
+    </div>
+  </div>
+  
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-danger">
+      <div class="inner">
+        <h3>R$ {{ total_expenses|floatformat:2 }}</h3>
+        <p>Despesas</p>
+      </div>
+      <div class="icon">
+        <i class="fas fa-money-bill-wave"></i>
+      </div>
+    </div>
+  </div>
+  
+  <div class="col-lg-3 col-6">
+    <div class="small-box {% if profit >= 0 %}bg-primary{% else %}bg-warning{% endif %}">
+      <div class="inner">
+        <h3>R$ {{ profit|floatformat:2 }}</h3>
+        <p>Lucro Líquido</p>
+      </div>
+      <div class="icon">
+        <i class="fas fa-chart-line"></i>
+      </div>
+    </div>
+  </div>
+  
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-info">
+      <div class="inner">
+        <h3>R$ {{ pending_invoices|floatformat:2 }}</h3>
+        <p>A Receber</p>
+      </div>
+      <div class="icon">
+        <i class="fas fa-clock"></i>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Gráfico de Receitas x Despesas -->
+<div class="row">
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Receitas x Despesas (Últimos 6 Meses)</h3>
+      </div>
+      <div class="card-body">
+        <canvas id="financeChart" height="300"></canvas>
+      </div>
+    </div>
+  </div>
+  
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Margem de Lucro</h3>
+      </div>
+      <div class="card-body">
+        <div class="text-center">
+          <h2 class="{% if profit_margin >= 20 %}text-success{% elif profit_margin >= 10 %}text-warning{% else %}text-danger{% endif %}">
+            {{ profit_margin|floatformat:1 }}%
+          </h2>
+          <p class="text-muted">Margem líquida sobre receitas</p>
+        </div>
+        <hr>
+        <div class="row">
+          <div class="col-6 text-center">
+            <small class="text-muted">Faturado</small><br>
+            <strong>R$ {{ total_invoiced|floatformat:2 }}</strong>
+          </div>
+          <div class="col-6 text-center">
+            <small class="text-muted">Vencidas</small><br>
+            <strong class="text-danger">{{ overdue_invoices }}</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Alertas</h3>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% if overdue_invoices > 0 %}
+            <li class="list-group-item">
+              <i class="fas fa-exclamation-triangle text-warning"></i>
+              <strong>{{ overdue_invoices }}</strong> fatura(s) vencida(s)
+            </li>
+          {% endif %}
+          
+          {% if pending_invoices > 10000 %}
+            <li class="list-group-item">
+              <i class="fas fa-info-circle text-info"></i>
+              Alto valor a receber
+            </li>
+          {% endif %}
+          
+          {% if profit < 0 %}
+            <li class="list-group-item">
+              <i class="fas fa-exclamation-circle text-danger"></i>
+              Lucro negativo no período
+            </li>
+          {% endif %}
+          
+          {% if not overdue_invoices and profit >= 0 %}
+            <li class="list-group-item text-success">
+              <i class="fas fa-check-circle"></i>
+              Tudo em dia!
+            </li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Top Clientes e Despesas por Categoria -->
+<div class="row">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Top 5 Clientes</h3>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th class="text-right">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in top_customers %}
+            <tr>
+              <td>{{ item.customer__name }}</td>
+              <td class="text-right">R$ {{ item.total|floatformat:2 }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="2" class="text-center text-muted p-3">Sem dados</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Despesas por Categoria</h3>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Categoria</th>
+              <th class="text-right">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in expenses_by_category %}
+            <tr>
+              <td>{{ item.get_category_display }}</td>
+              <td class="text-right">R$ {{ item.total|floatformat:2 }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="2" class="text-center text-muted p-3">Sem dados</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/chart.js/Chart.min.js' %}"></script>
+<script>
+const chartData = {{ chart_data_json|safe }};
+
+const ctx = document.getElementById('financeChart').getContext('2d');
+new Chart(ctx, {
+  type: 'bar',
+  data: {
+    labels: chartData.map(d => d.month),
+    datasets: [
+      {
+        label: 'Receitas',
+        data: chartData.map(d => d.receitas),
+        backgroundColor: 'rgba(40, 167, 69, 0.7)',
+        borderColor: 'rgb(40, 167, 69)',
+        borderWidth: 1
+      },
+      {
+        label: 'Despesas',
+        data: chartData.map(d => d.despesas),
+        backgroundColor: 'rgba(220, 53, 69, 0.7)',
+        borderColor: 'rgb(220, 53, 69)',
+        borderWidth: 1
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: {
+          callback: function(value) {
+            return 'R$ ' + value.toFixed(2);
+          }
+        }
+      }
+    },
+    plugins: {
+      legend: {
+        display: true,
+        position: 'top'
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            return context.dataset.label + ': R$ ' + context.parsed.y.toFixed(2);
+          }
+        }
+      }
+    }
+  }
+});
+</script>
+{% endblock %}

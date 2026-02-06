@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from django.contrib import messages
+from django.db.models import Q, Count, Sum
+from django.db.models.functions import TruncMonth
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponseForbidden, HttpRequest
@@ -17,12 +19,18 @@ from apps.portal.models import (
     KanbanBoard, KanbanColumn, KanbanCard,
     ChatThread, ChatMember, ChatMessage,
 )
-from apps.customers.models import Customer
+from apps.finance.models import FeeAgreement, Invoice, Payment, Expense
+from apps.customers.models import Customer, CustomerInteraction, CustomerDocument
 from apps.processes.models import Process, ProcessParty
 from apps.memberships.models import Membership
 from apps.offices.models import Office
 from apps.accounts.models import User
-#import logging
+from datetime import timedelta
+import csv
+import json
+import io
+from django.http import HttpResponse
+from openpyxl import Workbook
 
 #logger = logging.getLogger(__name__)
 
@@ -270,17 +278,6 @@ def processo_delete(request, process_id):
 
 
 # Contatos Views
-
-"""
-VIEWS DE CONTATOS/CRM - Adicionar ao apps/portal/views.py
-"""
-
-from apps.customers.models import Customer, CustomerInteraction, CustomerDocument
-import csv
-import io
-from django.http import HttpResponse
-from openpyxl import Workbook
-
 # ==================== DASHBOARD CONTATOS ====================
 
 @login_required
@@ -1571,3 +1568,710 @@ def prazos_calendar_json(request):
 
 
 # Fim prazos views
+
+# Finance Views
+
+# ==================== DASHBOARD FINANCEIRO ====================
+
+@login_required
+def financeiro_dashboard(request):
+    """Dashboard financeiro com KPIs e gráficos"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    office = request.office
+    today = timezone.now().date()
+    
+    # Período do filtro (padrão: mês atual)
+    period = request.GET.get('period', 'month')
+    
+    if period == 'month':
+        start_date = today.replace(day=1)
+        end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    elif period == 'quarter':
+        quarter = (today.month - 1) // 3
+        start_date = today.replace(month=quarter * 3 + 1, day=1)
+        end_date = (start_date + timedelta(days=93)).replace(day=1) - timedelta(days=1)
+    elif period == 'year':
+        start_date = today.replace(month=1, day=1)
+        end_date = today.replace(month=12, day=31)
+    else:  # all
+        start_date = None
+        end_date = None
+    
+    # Receitas (faturas pagas)
+    invoices_qs = Invoice.objects.filter(office=office)
+    if start_date:
+        invoices_qs = invoices_qs.filter(issue_date__gte=start_date, issue_date__lte=end_date)
+    
+    total_invoiced = invoices_qs.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_received = Payment.objects.filter(
+        invoice__office=office,
+        paid_at__gte=start_date if start_date else today.replace(year=2000)
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    
+    # Despesas
+    expenses_qs = Expense.objects.filter(office=office, status='paid')
+    if start_date:
+        expenses_qs = expenses_qs.filter(date__gte=start_date, date__lte=end_date)
+    
+    total_expenses = expenses_qs.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    
+    # Lucro
+    profit = total_received - total_expenses
+    profit_margin = (profit / total_received * 100) if total_received > 0 else 0
+    
+    # A receber (faturas pendentes)
+    pending_invoices = Invoice.objects.filter(
+        office=office,
+        status__in=['issued', 'sent', 'overdue']
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    
+    # Vencidas
+    overdue_invoices = Invoice.objects.filter(
+        office=office,
+        status='overdue'
+    ).count()
+    
+    # Gráfico mensal (últimos 6 meses)
+    six_months_ago = today - timedelta(days=180)
+    monthly_data = Payment.objects.filter(
+        invoice__office=office,
+        paid_at__gte=six_months_ago
+    ).annotate(
+        month=TruncMonth('paid_at')
+    ).values('month').annotate(
+        receitas=Sum('amount')
+    ).order_by('month')
+    
+    monthly_expenses = Expense.objects.filter(
+        office=office,
+        status='paid',
+        date__gte=six_months_ago
+    ).annotate(
+        month=TruncMonth('date')
+    ).values('month').annotate(
+        despesas=Sum('amount')
+    ).order_by('month')
+    
+    # Combinar dados mensais
+    months_dict = {}
+    for item in monthly_data:
+        key = item['month'].strftime('%Y-%m')
+        months_dict[key] = {
+            'month': item['month'].strftime('%b/%y'),
+            'receitas': float(item['receitas']),
+            'despesas': 0
+        }
+    
+    for item in monthly_expenses:
+        key = item['month'].strftime('%Y-%m')
+        if key in months_dict:
+            months_dict[key]['despesas'] = float(item['despesas'])
+        else:
+            months_dict[key] = {
+                'month': item['month'].strftime('%b/%y'),
+                'receitas': 0,
+                'despesas': float(item['despesas'])
+            }
+    
+    chart_data = list(months_dict.values())
+    
+    # Top clientes
+    top_customers = FeeAgreement.objects.filter(
+        office=office,
+        status='active'
+    ).values('customer__name').annotate(
+        total=Sum('amount')
+    ).order_by('-total')[:5]
+    
+    # Despesas por categoria
+    expenses_by_category = Expense.objects.filter(
+        office=office,
+        status='paid'
+    ).values('category').annotate(
+        total=Sum('amount')
+    ).order_by('-total')[:5]
+    
+    context = {
+        'period': period,
+        'total_invoiced': total_invoiced,
+        'total_received': total_received,
+        'total_expenses': total_expenses,
+        'profit': profit,
+        'profit_margin': profit_margin,
+        'pending_invoices': pending_invoices,
+        'overdue_invoices': overdue_invoices,
+        'chart_data_json': json.dumps(chart_data),
+        'top_customers': top_customers,
+        'expenses_by_category': expenses_by_category,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_dashboard.html', context)
+
+
+# ==================== CONTRATOS ====================
+
+@login_required
+def financeiro_contratos(request):
+    """Lista de contratos de honorários"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    status_filter = request.GET.get('status', '')
+    billing_type = request.GET.get('billing_type', '')
+    
+    qs = FeeAgreement.objects.filter(office=request.office).select_related('customer', 'process')
+    
+    if search:
+        qs = qs.filter(
+            Q(title__icontains=search) |
+            Q(customer__name__icontains=search) |
+            Q(description__icontains=search)
+        )
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if billing_type:
+        qs = qs.filter(billing_type=billing_type)
+    
+    qs = qs.order_by('-created_at')
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    agreements = paginator.get_page(page)
+    
+    # Adiciona dados computados
+    for agr in agreements:
+        agr.total_received_amount = agr.total_received
+        agr.balance_amount = agr.balance
+    
+    context = {
+        'agreements': agreements,
+        'search': search,
+        'status_filter': status_filter,
+        'billing_type': billing_type,
+        'status_choices': FeeAgreement.STATUS_CHOICES,
+        'billing_type_choices': FeeAgreement.BILLING_TYPE_CHOICES,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_contratos.html', context)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def financeiro_contrato_create(request):
+    """Criar contrato de honorários"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    if request.method == "POST":
+        data = request.POST
+        
+        # Validações básicas
+        customer_id = data.get('customer_id')
+        title = data.get('title', '').strip()
+        amount = data.get('amount')
+        
+        if not customer_id or not title or not amount:
+            messages.error(request, "Cliente, título e valor são obrigatórios")
+            return redirect('portal:financeiro_contrato_create')
+        
+        try:
+            customer = Customer.objects.get(id=customer_id, office=request.office)
+            
+            agreement = FeeAgreement.objects.create(
+                organization=request.organization,
+                office=request.office,
+                customer=customer,
+                title=title,
+                description=data.get('description', ''),
+                amount=Decimal(amount),
+                billing_type=data.get('billing_type', 'one_time'),
+                installments=int(data.get('installments', 1)),
+                status=data.get('status', 'draft'),
+                notes=data.get('notes', ''),
+                responsible=request.user
+            )
+            
+            # Vincula processo se informado
+            process_id = data.get('process_id')
+            if process_id:
+                try:
+                    process = Process.objects.get(id=process_id, office=request.office)
+                    agreement.process = process
+                    agreement.save()
+                except Process.DoesNotExist:
+                    pass
+            
+            ActivityLog.objects.create(
+                organization=request.organization,
+                office=request.office,
+                actor=request.user,
+                verb="agreement_create",
+                description=f"Novo contrato: {title}"
+            )
+            
+            messages.success(request, "Contrato criado com sucesso!")
+            return redirect('portal:financeiro_contrato_detail', agreement.id)
+            
+        except Exception as e:
+            messages.error(request, f"Erro ao criar contrato: {str(e)}")
+    
+    # GET - buscar clientes para dropdown
+    customers = Customer.objects.filter(office=request.office).order_by('name')
+    
+    context = {
+        'customers': customers,
+        'billing_type_choices': FeeAgreement.BILLING_TYPE_CHOICES,
+        'status_choices': FeeAgreement.STATUS_CHOICES,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_contrato_form.html', context)
+
+
+@login_required
+def financeiro_contrato_detail(request, agreement_id):
+    """Detalhes do contrato"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    agreement = get_object_or_404(
+        FeeAgreement.objects.select_related('customer', 'process'),
+        id=agreement_id,
+        office=request.office
+    )
+    
+    # Faturas do contrato
+    invoices = agreement.invoices.order_by('-issue_date')
+    
+    # Totais
+    total_invoiced = agreement.total_invoiced
+    total_received = agreement.total_received
+    balance = agreement.balance
+    
+    context = {
+        'agreement': agreement,
+        'invoices': invoices,
+        'total_invoiced': total_invoiced,
+        'total_received': total_received,
+        'balance': balance,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_contrato_detail.html', context)
+
+
+# ==================== FATURAS ====================
+
+@login_required
+def financeiro_faturas(request):
+    """Lista de faturas"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    status_filter = request.GET.get('status', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    
+    qs = Invoice.objects.filter(office=request.office).select_related('agreement__customer')
+    
+    if search:
+        qs = qs.filter(
+            Q(number__icontains=search) |
+            Q(agreement__customer__name__icontains=search) |
+            Q(description__icontains=search)
+        )
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if date_from:
+        from django.utils.dateparse import parse_date
+        df = parse_date(date_from)
+        if df:
+            qs = qs.filter(issue_date__gte=df)
+    
+    if date_to:
+        from django.utils.dateparse import parse_date
+        dt = parse_date(date_to)
+        if dt:
+            qs = qs.filter(issue_date__lte=dt)
+    
+    qs = qs.order_by('-issue_date')
+    
+    # Marca vencidas automaticamente
+    today = timezone.now().date()
+    for inv in qs.filter(status__in=['issued', 'sent'], due_date__lt=today):
+        if inv.status != 'overdue':
+            inv.status = 'overdue'
+            inv.save(update_fields=['status'])
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    invoices = paginator.get_page(page)
+    
+    # Adiciona dados computados
+    for inv in invoices:
+        inv.paid_amount_value = inv.paid_amount
+        inv.balance_value = inv.balance
+    
+    context = {
+        'invoices': invoices,
+        'search': search,
+        'status_filter': status_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'status_choices': Invoice.STATUS_CHOICES,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_faturas.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def financeiro_fatura_create(request):
+    """Criar fatura (JSON)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    agreement_id = payload.get('agreement_id')
+    number = payload.get('number', '').strip()
+    issue_date = payload.get('issue_date')
+    due_date = payload.get('due_date')
+    amount = payload.get('amount')
+    
+    if not all([agreement_id, number, issue_date, due_date, amount]):
+        return JsonResponse({"error": "Campos obrigatórios faltando"}, status=400)
+    
+    try:
+        agreement = FeeAgreement.objects.get(id=agreement_id, office=request.office)
+        
+        from django.utils.dateparse import parse_date
+        issue_date_obj = parse_date(issue_date)
+        due_date_obj = parse_date(due_date)
+        
+        invoice = Invoice.objects.create(
+            organization=request.organization,
+            office=request.office,
+            agreement=agreement,
+            number=number,
+            issue_date=issue_date_obj,
+            due_date=due_date_obj,
+            amount=Decimal(amount),
+            discount=Decimal(payload.get('discount', '0.00')),
+            status=payload.get('status', 'draft'),
+            description=payload.get('description', ''),
+            notes=payload.get('notes', '')
+        )
+        
+        ActivityLog.objects.create(
+            organization=request.organization,
+            office=request.office,
+            actor=request.user,
+            verb="invoice_create",
+            description=f"Nova fatura: {number}"
+        )
+        
+        return JsonResponse({
+            "ok": True,
+            "invoice": {
+                "id": invoice.id,
+                "number": invoice.number
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(["POST"])
+def financeiro_fatura_registrar_pagamento(request, invoice_id):
+    """Registrar pagamento de fatura"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    invoice = get_object_or_404(Invoice, id=invoice_id, office=request.office)
+    
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    amount = payload.get('amount')
+    paid_at = payload.get('paid_at')
+    method = payload.get('method', 'pix')
+    
+    if not all([amount, paid_at]):
+        return JsonResponse({"error": "Valor e data são obrigatórios"}, status=400)
+    
+    try:
+        from django.utils.dateparse import parse_date
+        paid_at_obj = parse_date(paid_at)
+        
+        payment = Payment.objects.create(
+            organization=request.organization,
+            office=request.office,
+            invoice=invoice,
+            amount=Decimal(amount),
+            paid_at=paid_at_obj,
+            method=method,
+            reference=payload.get('reference', ''),
+            notes=payload.get('notes', ''),
+            recorded_by=request.user
+        )
+        
+        # Atualiza status da fatura
+        if invoice.balance <= 0:
+            invoice.status = 'paid'
+            invoice.save(update_fields=['status'])
+        
+        ActivityLog.objects.create(
+            organization=request.organization,
+            office=request.office,
+            actor=request.user,
+            verb="payment_create",
+            description=f"Pagamento registrado: R$ {amount} - Fatura {invoice.number}"
+        )
+        
+        return JsonResponse({"ok": True})
+        
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+# ==================== DESPESAS ====================
+
+@login_required
+def financeiro_despesas(request):
+    """Lista de despesas"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    category = request.GET.get('category', '')
+    status_filter = request.GET.get('status', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    
+    qs = Expense.objects.filter(office=request.office)
+    
+    if search:
+        qs = qs.filter(
+            Q(title__icontains=search) |
+            Q(description__icontains=search) |
+            Q(supplier__icontains=search)
+        )
+    
+    if category:
+        qs = qs.filter(category=category)
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if date_from:
+        from django.utils.dateparse import parse_date
+        df = parse_date(date_from)
+        if df:
+            qs = qs.filter(date__gte=df)
+    
+    if date_to:
+        from django.utils.dateparse import parse_date
+        dt = parse_date(date_to)
+        if dt:
+            qs = qs.filter(date__lte=dt)
+    
+    qs = qs.order_by('-date')
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    expenses = paginator.get_page(page)
+    
+    context = {
+        'expenses': expenses,
+        'search': search,
+        'category': category,
+        'status_filter': status_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'category_choices': Expense.CATEGORY_CHOICES,
+        'status_choices': Expense.STATUS_CHOICES,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_despesas.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def financeiro_despesa_create(request):
+    """Criar despesa (JSON)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    title = payload.get('title', '').strip()
+    amount = payload.get('amount')
+    date = payload.get('date')
+    category = payload.get('category', 'other')
+    
+    if not all([title, amount, date]):
+        return JsonResponse({"error": "Título, valor e data são obrigatórios"}, status=400)
+    
+    try:
+        from django.utils.dateparse import parse_date
+        date_obj = parse_date(date)
+        
+        expense = Expense.objects.create(
+            organization=request.organization,
+            office=request.office,
+            title=title,
+            description=payload.get('description', ''),
+            category=category,
+            date=date_obj,
+            amount=Decimal(amount),
+            status=payload.get('status', 'pending'),
+            supplier=payload.get('supplier', ''),
+            reference=payload.get('reference', ''),
+            notes=payload.get('notes', ''),
+            responsible=request.user
+        )
+        
+        ActivityLog.objects.create(
+            organization=request.organization,
+            office=request.office,
+            actor=request.user,
+            verb="expense_create",
+            description=f"Nova despesa: {title}"
+        )
+        
+        return JsonResponse({
+            "ok": True,
+            "expense": {
+                "id": expense.id,
+                "title": expense.title
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(["POST"])
+def financeiro_despesa_update(request, expense_id):
+    """Atualizar despesa (JSON)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    expense = get_object_or_404(Expense, id=expense_id, office=request.office)
+    
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    if 'title' in payload:
+        expense.title = payload['title'].strip()
+    if 'amount' in payload:
+        expense.amount = Decimal(payload['amount'])
+    if 'date' in payload:
+        from django.utils.dateparse import parse_date
+        expense.date = parse_date(payload['date'])
+    if 'category' in payload:
+        expense.category = payload['category']
+    if 'status' in payload:
+        expense.status = payload['status']
+    if 'description' in payload:
+        expense.description = payload['description']
+    if 'supplier' in payload:
+        expense.supplier = payload['supplier']
+    if 'reference' in payload:
+        expense.reference = payload['reference']
+    if 'notes' in payload:
+        expense.notes = payload['notes']
+    
+    expense.save()
+    
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_http_methods(["POST"])
+def financeiro_despesa_delete(request, expense_id):
+    """Deletar despesa"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    expense = get_object_or_404(Expense, id=expense_id, office=request.office)
+    title = expense.title
+    expense.delete()
+    
+    ActivityLog.objects.create(
+        organization=request.organization,
+        office=request.office,
+        actor=request.user,
+        verb="expense_delete",
+        description=f"Despesa deletada: {title}"
+    )
+    
+    return JsonResponse({"ok": True})
+
+
+@login_required
+def financeiro_despesa_detail(request, expense_id):
+    """Detalhes da despesa (JSON)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    expense = get_object_or_404(Expense, id=expense_id, office=request.office)
+    
+    return JsonResponse({
+        "id": expense.id,
+        "title": expense.title,
+        "description": expense.description or "",
+        "category": expense.category,
+        "date": expense.date.isoformat(),
+        "amount": str(expense.amount),
+        "status": expense.status,
+        "supplier": expense.supplier or "",
+        "reference": expense.reference or "",
+        "notes": expense.notes or ""
+    })
+
+# Fim finance Views
