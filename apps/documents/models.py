@@ -117,6 +117,12 @@ class Document(OrganizationScopedModel):
         super().save(*args, **kwargs)
     
     @property
+    def filename(self):
+        if not self.file:
+            return ""
+        return os.path.basename(self.file.name)
+
+    @property
     def file_size_mb(self):
         """Tamanho em MB"""
         return round(self.file_size / (1024 * 1024), 2)
