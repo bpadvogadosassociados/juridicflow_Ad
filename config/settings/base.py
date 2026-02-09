@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "apps.finance",
     "apps.api",
     "apps.portal",
+    "apps.publications",
 ]
 
 MIDDLEWARE = [

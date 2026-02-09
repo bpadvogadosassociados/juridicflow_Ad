@@ -11,6 +11,7 @@ from django.views.decorators.http import require_http_methods
 from django.core.paginator import Paginator
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 from decimal import Decimal
 from apps.documents.models import Document, DocumentVersion, DocumentShare, DocumentComment, Folder, DocumentFolder
 
@@ -27,6 +28,10 @@ from apps.processes.models import Process, ProcessParty
 from apps.memberships.models import Membership
 from apps.offices.models import Office
 from apps.accounts.models import User
+from apps.publications.models import (
+    Publication, JudicialEvent, PublicationRule,
+    PublicationImport, PublicationFilter
+)
 from datetime import timedelta
 import csv
 import json
@@ -2829,4 +2834,375 @@ def pasta_delete(request, folder_id):
     folder.delete()
     return JsonResponse({"ok": True})
 
-#
+    # Publicações
+# ==================== DASHBOARD ====================
+
+@login_required
+def publicacoes_dashboard(request):
+    """Dashboard MVP: contadores + listas simples"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    office = request.office
+    
+    # Contadores
+    events = JudicialEvent.objects.filter(office=office)
+    total_new = events.filter(status='new').count()
+    total_urgent = events.filter(urgency__in=['urgent', 'critical']).count()
+    total_unassigned = events.filter(assigned_to__isnull=True, status='new').count()
+    
+    # Prazos próximos (< 7 dias)
+    from datetime import timedelta
+    week_later = timezone.now().date() + timedelta(days=7)
+    events_with_deadline = events.filter(deadline__isnull=False, deadline__due_date__lte=week_later).select_related('publication', 'deadline')
+    
+    # Publicações recentes
+    recent_pubs = Publication.objects.filter(office=office).select_related('imported_by').order_by('-publication_date')[:10]
+    
+    # Não atribuídas
+    unassigned = events.filter(assigned_to__isnull=True, status='new').select_related('publication')[:10]
+    
+    context = {
+        'total_new': total_new,
+        'total_urgent': total_urgent,
+        'total_unassigned': total_unassigned,
+        'events_with_deadline': events_with_deadline,
+        'recent_pubs': recent_pubs,
+        'unassigned': unassigned,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacoes_dashboard.html', context)
+
+
+# ==================== LISTA ====================
+
+@login_required
+def publicacoes(request):
+    """Lista de eventos jurídicos (não publicações brutas)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    event_type = request.GET.get('type', '')
+    status_filter = request.GET.get('status', '')
+    urgency_filter = request.GET.get('urgency', '')
+    assigned_filter = request.GET.get('assigned', '')
+    
+    qs = JudicialEvent.objects.filter(office=request.office).select_related(
+        'publication', 'process', 'assigned_to', 'deadline'
+    )
+    
+    if search:
+        qs = qs.filter(
+            Q(publication__raw_text__icontains=search) |
+            Q(publication__process_cnj__icontains=search) |
+            Q(notes__icontains=search)
+        )
+    
+    if event_type:
+        qs = qs.filter(event_type=event_type)
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if urgency_filter:
+        qs = qs.filter(urgency=urgency_filter)
+    
+    if assigned_filter:
+        if assigned_filter == 'unassigned':
+            qs = qs.filter(assigned_to__isnull=True)
+        else:
+            qs = qs.filter(assigned_to_id=assigned_filter)
+    
+    qs = qs.order_by('-created_at')
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    events = paginator.get_page(page)
+    
+    # Usuários para filtro
+    from apps.accounts.models import User
+    users = User.objects.filter(memberships__office=request.office, memberships__is_active=True).distinct()
+    
+    context = {
+        'events': events,
+        'search': search,
+        'event_type': event_type,
+        'status_filter': status_filter,
+        'urgency_filter': urgency_filter,
+        'assigned_filter': assigned_filter,
+        'type_choices': JudicialEvent.TYPE_CHOICES,
+        'status_choices': JudicialEvent.STATUS_CHOICES,
+        'urgency_choices': JudicialEvent.URGENCY_CHOICES,
+        'users': users,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacoes.html', context)
+
+
+# ==================== IMPORTAÇÃO ====================
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def publicacao_import(request):
+    """Importação manual (texto colado - MVP)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    if request.method == "POST":
+        raw_text = request.POST.get('raw_text', '').strip()
+        pub_date = request.POST.get('publication_date', '')
+        source = request.POST.get('source', 'manual')
+        
+        if not raw_text or not pub_date:
+            messages.error(request, "Texto e data são obrigatórios.")
+            return redirect('portal:publicacao_import')
+        
+        from datetime import datetime
+        try:
+            pub_date_obj = datetime.strptime(pub_date, '%Y-%m-%d').date()
+        except:
+            messages.error(request, "Data inválida.")
+            return redirect('portal:publicacao_import')
+        
+        # Cria log de importação
+        import_log = PublicationImport.objects.create(
+            organization=request.organization,
+            office=request.office,
+            source=source,
+            imported_by=request.user,
+            total_found=1
+        )
+        
+        try:
+            # Cria publicação
+            pub = Publication.objects.create(
+                organization=request.organization,
+                office=request.office,
+                source=source,
+                raw_text=raw_text,
+                publication_date=pub_date_obj,
+                imported_by=request.user
+            )
+            
+            # Processa publicação
+            from apps.publications.services import PublicationProcessor
+            event = PublicationProcessor.process(pub, auto_create_event=True)
+            
+            # Atualiza log
+            import_log.total_imported = 1
+            import_log.status = 'success'
+            import_log.summary = f"Publicação importada com sucesso. Evento criado: {event.get_event_type_display() if event else 'Nenhum'}"
+            import_log.finished_at = timezone.now()
+            import_log.save()
+            
+            messages.success(request, f"Publicação importada! Tipo detectado: {event.get_event_type_display() if event else 'Indefinido'}")
+            return redirect('portal:publicacao_detail', pub.id)
+            
+        except Exception as e:
+            import_log.total_errors = 1
+            import_log.status = 'failed'
+            import_log.error_log = str(e)
+            import_log.finished_at = timezone.now()
+            import_log.save()
+            
+            messages.error(request, f"Erro ao importar: {str(e)}")
+    
+    # GET: últimas importações
+    recent_imports = PublicationImport.objects.filter(office=request.office).order_by('-started_at')[:10]
+    
+    context = {
+        'recent_imports': recent_imports,
+        'source_choices': Publication.SOURCE_CHOICES,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacao_import.html', context)
+
+
+# ==================== DETALHES ====================
+
+@login_required
+def publicacao_detail(request, pub_id):
+    """Detalhes da publicação + eventos"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    pub = get_object_or_404(
+        Publication.objects.select_related('imported_by'),
+        id=pub_id,
+        office=request.office
+    )
+    
+    # Eventos jurídicos dessa publicação
+    events = pub.events.select_related('process', 'assigned_to', 'deadline').order_by('-created_at')
+    
+    context = {
+        'publication': pub,
+        'events': events,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacao_detail.html', context)
+
+
+# ==================== AÇÕES JSON ====================
+
+@login_required
+@require_http_methods(["POST"])
+def evento_assign(request, event_id):
+    """Atribuir responsável"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    event = get_object_or_404(JudicialEvent, id=event_id, office=request.office)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    user_id = payload.get('user_id')
+    
+    from apps.accounts.models import User
+    try:
+        user = User.objects.get(id=user_id)
+        event.assigned_to = user
+        event.assigned_at = timezone.now()
+        event.status = 'assigned'
+        event.save()
+        
+        return JsonResponse({"ok": True})
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Usuário não encontrado"}, status=404)
+
+
+@login_required
+@require_http_methods(["POST"])
+def evento_status(request, event_id):
+    """Alterar status"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    event = get_object_or_404(JudicialEvent, id=event_id, office=request.office)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    new_status = payload.get('status')
+    
+    if new_status not in dict(JudicialEvent.STATUS_CHOICES):
+        return JsonResponse({"error": "Status inválido"}, status=400)
+    
+    event.status = new_status
+    if new_status == 'resolved':
+        event.resolved_at = timezone.now()
+    event.save()
+    
+    return JsonResponse({"ok": True})
+
+
+# ==================== REGRAS ====================
+
+@login_required
+def publicacao_rules(request):
+    """Configuração de regras de prazo"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    rules = PublicationRule.objects.filter(office=request.office).order_by('-priority', 'event_type')
+    
+    context = {
+        'rules': rules,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacao_rules.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def publicacao_rule_create(request):
+    """Criar regra"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    try:
+        rule = PublicationRule.objects.create(
+            organization=request.organization,
+            office=request.office,
+            event_type=payload.get('event_type'),
+            description=payload.get('description', ''),
+            base_legal=payload.get('base_legal', ''),
+            days=int(payload.get('days', 15)),
+            business_days=payload.get('business_days', True),
+            auto_create_deadline=payload.get('auto_create_deadline', True),
+            auto_urgency=payload.get('auto_urgency', 'normal'),
+        )
+        
+        return JsonResponse({"ok": True, "rule_id": rule.id})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+# ==================== FILTROS ====================
+
+@login_required
+def publicacao_filters(request):
+    """Gestão de filtros/keywords"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    filters = PublicationFilter.objects.filter(office=request.office).order_by('filter_type', 'value')
+    
+    context = {
+        'filters': filters,
+        'filter_types': PublicationFilter.TYPE_CHOICES,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacao_filters.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def publicacao_filter_create(request):
+    """Criar filtro"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    filter_obj = PublicationFilter.objects.create(
+        organization=request.organization,
+        office=request.office,
+        filter_type=payload.get('filter_type'),
+        value=payload.get('value', '').strip(),
+        description=payload.get('description', ''),
+    )
+    
+    return JsonResponse({"ok": True, "filter_id": filter_obj.id})

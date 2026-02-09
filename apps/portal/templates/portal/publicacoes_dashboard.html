@@ -1,0 +1,68 @@
+{% extends "portal/base.html" %}
+{% block title %}Dashboard Publicações | JuridicFlow{% endblock %}
+{% block page_title %}Publicações Judiciais{% endblock %}
+{% block breadcrumb %}Publicações / Dashboard{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:publicacoes' %}" class="btn btn-primary"><i class="fas fa-list"></i> Ver Todas</a>
+    <a href="{% url 'portal:publicacao_import' %}" class="btn btn-success"><i class="fas fa-upload"></i> Importar</a>
+    <a href="{% url 'portal:publicacao_rules' %}" class="btn btn-info"><i class="fas fa-cog"></i> Regras</a>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-lg-3 col-6"><div class="small-box bg-info"><div class="inner"><h3>{{ total_new }}</h3><p>Novas</p></div><div class="icon"><i class="fas fa-envelope"></i></div></div></div>
+  <div class="col-lg-3 col-6"><div class="small-box bg-danger"><div class="inner"><h3>{{ total_urgent }}</h3><p>Urgentes</p></div><div class="icon"><i class="fas fa-exclamation-triangle"></i></div></div></div>
+  <div class="col-lg-3 col-6"><div class="small-box bg-warning"><div class="inner"><h3>{{ total_unassigned }}</h3><p>Não Atribuídas</p></div><div class="icon"><i class="fas fa-user-slash"></i></div></div></div>
+  <div class="col-lg-3 col-6"><div class="small-box bg-success"><div class="inner"><h3>{{ events_with_deadline|length }}</h3><p>Com Prazo < 7d</p></div><div class="icon"><i class="fas fa-clock"></i></div></div></div>
+</div>
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card card-danger">
+      <div class="card-header"><h3 class="card-title">Não Atribuídas</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-sm">
+          <tbody>
+          {% for e in unassigned %}
+          <tr>
+            <td><a href="{% url 'portal:publicacao_detail' e.publication.id %}">{{ e.get_event_type_display }}</a></td>
+            <td>{{ e.publication.process_cnj|default:"Sem CNJ" }}</td>
+            <td>{{ e.publication.publication_date|date:"d/m/Y" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3" class="text-center text-muted p-2">Tudo atribuído!</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+  <div class="col-md-6">
+    <div class="card card-warning">
+      <div class="card-header"><h3 class="card-title">Prazos Próximos (< 7 dias)</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-sm">
+          <tbody>
+          {% for e in events_with_deadline %}
+          <tr>
+            <td><a href="{% url 'portal:publicacao_detail' e.publication.id %}">{{ e.publication.process_cnj|default:"Sem CNJ" }}</a></td>
+            <td>{{ e.deadline.due_date|date:"d/m/Y" }}</td>
+            <td>
+              {% if e.urgency == 'critical' %}<span class="badge badge-danger">Crítico</span>
+              {% elif e.urgency == 'urgent' %}<span class="badge badge-warning">Urgente</span>
+              {% else %}<span class="badge badge-info">Normal</span>{% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3" class="text-center text-muted p-2">Nenhum prazo próximo.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

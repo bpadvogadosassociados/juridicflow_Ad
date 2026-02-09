@@ -60,7 +60,7 @@ urlpatterns = [
     path("app/prazos/calendar/", views.prazos_calendar, name="prazos_calendar"),
     path("app/prazos/calendar/json/", views.prazos_calendar_json, name="prazos_calendar_json"),
 
-# Contatos/CRM
+    # Contatos/CRM
     path("app/contatos/dashboard/", views.contatos_dashboard, name="contatos_dashboard"),
     path("app/contatos/", views.contatos, name="contatos"),
     path("app/contatos/novo/", views.contato_create, name="contato_create"),
@@ -100,4 +100,16 @@ urlpatterns = [
     path("app/pastas/", views.pastas, name="pastas"),
     path("app/pastas/create/", views.pasta_create, name="pasta_create"),
     path("app/pastas/<int:folder_id>/delete/", views.pasta_delete, name="pasta_delete"),
+
+    # Publicações Judiciais
+    path("app/publicacoes/", views.publicacoes, name="publicacoes"),
+    path("app/publicacoes/dashboard/", views.publicacoes_dashboard, name="publicacoes_dashboard"),
+    path("app/publicacoes/importar/", views.publicacao_import, name="publicacao_import"),
+    path("app/publicacoes/<int:pub_id>/", views.publicacao_detail, name="publicacao_detail"),
+    path("app/publicacoes/evento/<int:event_id>/assign/", views.evento_assign, name="evento_assign"),
+    path("app/publicacoes/evento/<int:event_id>/status/", views.evento_status, name="evento_status"),
+    path("app/publicacoes/regras/", views.publicacao_rules, name="publicacao_rules"),
+    path("app/publicacoes/regras/create/", views.publicacao_rule_create, name="publicacao_rule_create"),
+    path("app/publicacoes/filtros/", views.publicacao_filters, name="publicacao_filters"),
+    path("app/publicacoes/filtros/create/", views.publicacao_filter_create, name="publicacao_filter_create"),
 ]
