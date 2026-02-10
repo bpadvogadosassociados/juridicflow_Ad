@@ -1,15 +1,19 @@
 from __future__ import annotations
-
 from django.contrib import messages
+from django.db.models import Q, Count, Sum
+from django.db.models.functions import TruncMonth
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, HttpResponseForbidden, HttpRequest
+from django.http import JsonResponse, HttpResponseForbidden, HttpRequest, FileResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_http_methods
 from django.core.paginator import Paginator
 from django.db import models
 from django.conf import settings
-
+from django.utils import timezone
+from decimal import Decimal
+from apps.portal.decorators import require_portal_access, require_portal_json
+from apps.documents.models import Document, DocumentVersion, DocumentShare, DocumentComment, Folder, DocumentFolder
 from apps.portal.forms import PortalLoginForm, SupportTicketForm
 from apps.portal.models import (
     OfficePreference, ActivityLog, SupportTicket,
@@ -17,19 +21,26 @@ from apps.portal.models import (
     KanbanBoard, KanbanColumn, KanbanCard,
     ChatThread, ChatMember, ChatMessage,
 )
-from apps.customers.models import Customer
+from apps.finance.models import FeeAgreement, Invoice, Payment, Expense
+from apps.customers.models import Customer, CustomerInteraction, CustomerDocument
 from apps.processes.models import Process, ProcessParty
 from apps.memberships.models import Membership
 from apps.offices.models import Office
 from apps.accounts.models import User
-#import logging
+from apps.publications.models import (
+    Publication, JudicialEvent, PublicationRule,
+    PublicationImport, PublicationFilter
+)
+from datetime import timedelta
+import csv
+import json
+import io
+from django.http import HttpResponse
+from openpyxl import Workbook
 
 #logger = logging.getLogger(__name__)
 
-def landing(request):
-    if request.user.is_authenticated and not (request.user.is_staff or request.user.is_superuser):
-        return redirect("portal:dashboard")
-    return render(request, "portal/landing.html")
+
 
 @require_http_methods(["GET", "POST"])
 def portal_login(request):
@@ -269,15 +280,464 @@ def processo_delete(request, process_id):
 # Fim Views processos
 
 
+# Contatos Views
+# ==================== DASHBOARD CONTATOS ====================
 
 @login_required
-def contatos(request):
+def contatos_dashboard(request):
+    """Dashboard CRM com estatísticas"""
     forbid = _ensure_portal_user(request)
     if forbid: return forbid
     must = _ensure_office(request)
     if must: return must
-    customers = Customer.objects.for_request(request).filter(office=request.office).order_by("-id")[:200]
-    return render(request, "portal/contatos.html", {"customers": customers, "active_page":"contatos"})
+    
+    office = request.office
+    
+    # Estatísticas
+    total = Customer.objects.filter(office=office, is_deleted=False).count()
+    by_status = Customer.objects.filter(office=office, is_deleted=False).values('status').annotate(count=Count('id'))
+    by_type = Customer.objects.filter(office=office, is_deleted=False).values('type').annotate(count=Count('id'))
+    by_origin = Customer.objects.filter(office=office, is_deleted=False).values('origin').annotate(count=Count('id')).order_by('-count')[:5]
+    
+    # Conversões (lead -> cliente)
+    leads = Customer.objects.filter(office=office, status='lead', is_deleted=False).count()
+    clients = Customer.objects.filter(office=office, status='client', is_deleted=False).count()
+    conversion_rate = (clients / leads * 100) if leads > 0 else 0
+    
+    # Recentes
+    recent = Customer.objects.filter(office=office, is_deleted=False).order_by('-created_at')[:10]
+    
+    # Interações recentes
+    recent_interactions = CustomerInteraction.objects.filter(
+        office=office
+    ).select_related('customer', 'created_by').order_by('-date')[:10]
+    
+    # Top tags
+    all_customers = Customer.objects.filter(office=office, is_deleted=False).exclude(tags='')
+    tags_count = {}
+    for c in all_customers:
+        for tag in c.tag_list:
+            tags_count[tag] = tags_count.get(tag, 0) + 1
+    top_tags = sorted(tags_count.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    context = {
+        'total': total,
+        'by_status': list(by_status),
+        'by_type': list(by_type),
+        'by_origin': list(by_origin),
+        'leads': leads,
+        'clients': clients,
+        'conversion_rate': conversion_rate,
+        'recent': recent,
+        'recent_interactions': recent_interactions,
+        'top_tags': top_tags,
+        'active_page': 'contatos'
+    }
+    
+    return render(request, 'portal/contatos_dashboard.html', context)
+
+
+# ==================== LISTA E CRUD ====================
+
+@login_required
+def contatos(request):
+    """Lista de contatos com filtros avançados"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    status_filter = request.GET.get('status', '')
+    type_filter = request.GET.get('type', '')
+    origin_filter = request.GET.get('origin', '')
+    tag_filter = request.GET.get('tag', '')
+    
+    qs = Customer.objects.filter(office=request.office, is_deleted=False).select_related('responsible')
+    
+    if search:
+        qs = qs.filter(
+            Q(name__icontains=search) |
+            Q(email__icontains=search) |
+            Q(phone__icontains=search) |
+            Q(document__icontains=search)
+        )
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if type_filter:
+        qs = qs.filter(type=type_filter)
+    
+    if origin_filter:
+        qs = qs.filter(origin=origin_filter)
+    
+    if tag_filter:
+        qs = qs.filter(tags__icontains=tag_filter)
+    
+    qs = qs.order_by('-created_at')
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    customers = paginator.get_page(page)
+    
+    # Todas as tags para filtro
+    all_tags = set()
+    for c in Customer.objects.filter(office=request.office, is_deleted=False).exclude(tags=''):
+        all_tags.update(c.tag_list)
+    
+    context = {
+        'customers': customers,
+        'search': search,
+        'status_filter': status_filter,
+        'type_filter': type_filter,
+        'origin_filter': origin_filter,
+        'tag_filter': tag_filter,
+        'status_choices': Customer.STATUS_CHOICES,
+        'type_choices': Customer.TYPE_CHOICES,
+        'origin_choices': Customer.ORIGIN_CHOICES,
+        'all_tags': sorted(all_tags),
+        'active_page': 'contatos'
+    }
+    
+    return render(request, 'portal/contatos.html', context)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def contato_create(request):
+    """Criar contato"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    if request.method == "POST":
+        data = request.POST
+        
+        try:
+            customer = Customer.objects.create(
+                organization=request.organization,
+                office=request.office,
+                name=data.get('name', '').strip(),
+                document=data.get('document', '').strip(),
+                type=data.get('type', 'PF'),
+                status=data.get('status', 'lead'),
+                email=data.get('email', '').strip(),
+                phone=data.get('phone', '').strip(),
+                phone_secondary=data.get('phone_secondary', '').strip(),
+                whatsapp=data.get('whatsapp', '').strip(),
+                address_street=data.get('address_street', '').strip(),
+                address_number=data.get('address_number', '').strip(),
+                address_complement=data.get('address_complement', '').strip(),
+                address_neighborhood=data.get('address_neighborhood', '').strip(),
+                address_city=data.get('address_city', '').strip(),
+                address_state=data.get('address_state', '').strip(),
+                address_zipcode=data.get('address_zipcode', '').strip(),
+                profession=data.get('profession', '').strip(),
+                company_name=data.get('company_name', '').strip(),
+                origin=data.get('origin', 'other'),
+                referral_name=data.get('referral_name', '').strip(),
+                tags=data.get('tags', '').strip(),
+                notes=data.get('notes', '').strip(),
+                responsible=request.user,
+                first_contact_date=timezone.now().date()
+            )
+            
+            ActivityLog.objects.create(
+                organization=request.organization,
+                office=request.office,
+                actor=request.user,
+                verb="customer_create",
+                description=f"Novo contato: {customer.name}"
+            )
+            
+            messages.success(request, f"Contato {customer.name} criado com sucesso!")
+            return redirect('portal:contato_detail', customer.id)
+            
+        except Exception as e:
+            messages.error(request, f"Erro ao criar contato: {str(e)}")
+    
+    context = {
+        'status_choices': Customer.STATUS_CHOICES,
+        'type_choices': Customer.TYPE_CHOICES,
+        'origin_choices': Customer.ORIGIN_CHOICES,
+        'active_page': 'contatos'
+    }
+    
+    return render(request, 'portal/contato_form.html', context)
+
+
+@login_required
+def contato_detail(request, customer_id):
+    """Detalhes do contato"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    customer = get_object_or_404(
+        Customer.objects.select_related('responsible'),
+        id=customer_id,
+        office=request.office,
+        is_deleted=False
+    )
+    
+    # Interações
+    interactions = customer.interactions.select_related('created_by').order_by('-date')[:20]
+    
+    # Documentos
+    documents = customer.customer_documents.select_related('uploaded_by').order_by('-created_at')
+    
+    # Processos vinculados
+    from apps.processes.models import ProcessParty
+    process_parties = ProcessParty.objects.filter(customer=customer).select_related('process')
+    
+    # Contratos
+    from apps.finance.models import FeeAgreement
+    agreements = FeeAgreement.objects.filter(customer=customer, office=request.office).order_by('-created_at')
+    
+    context = {
+        'customer': customer,
+        'interactions': interactions,
+        'documents': documents,
+        'process_parties': process_parties,
+        'agreements': agreements,
+        'interaction_type_choices': CustomerInteraction.TYPE_CHOICES,
+        'document_type_choices': CustomerDocument.TYPE_CHOICES,
+        'active_page': 'contatos'
+    }
+    
+    return render(request, 'portal/contato_detail.html', context)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def contato_edit(request, customer_id):
+    """Editar contato"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    customer = get_object_or_404(Customer, id=customer_id, office=request.office, is_deleted=False)
+    
+    if request.method == "POST":
+        data = request.POST
+        
+        try:
+            customer.name = data.get('name', '').strip()
+            customer.document = data.get('document', '').strip()
+            customer.type = data.get('type', 'PF')
+            customer.status = data.get('status', 'lead')
+            customer.email = data.get('email', '').strip()
+            customer.phone = data.get('phone', '').strip()
+            customer.phone_secondary = data.get('phone_secondary', '').strip()
+            customer.whatsapp = data.get('whatsapp', '').strip()
+            customer.address_street = data.get('address_street', '').strip()
+            customer.address_number = data.get('address_number', '').strip()
+            customer.address_complement = data.get('address_complement', '').strip()
+            customer.address_neighborhood = data.get('address_neighborhood', '').strip()
+            customer.address_city = data.get('address_city', '').strip()
+            customer.address_state = data.get('address_state', '').strip()
+            customer.address_zipcode = data.get('address_zipcode', '').strip()
+            customer.profession = data.get('profession', '').strip()
+            customer.company_name = data.get('company_name', '').strip()
+            customer.origin = data.get('origin', 'other')
+            customer.referral_name = data.get('referral_name', '').strip()
+            customer.tags = data.get('tags', '').strip()
+            customer.notes = data.get('notes', '').strip()
+            customer.internal_notes = data.get('internal_notes', '').strip()
+            
+            customer.save()
+            
+            messages.success(request, "Contato atualizado com sucesso!")
+            return redirect('portal:contato_detail', customer.id)
+            
+        except Exception as e:
+            messages.error(request, f"Erro ao atualizar: {str(e)}")
+    
+    context = {
+        'customer': customer,
+        'status_choices': Customer.STATUS_CHOICES,
+        'type_choices': Customer.TYPE_CHOICES,
+        'origin_choices': Customer.ORIGIN_CHOICES,
+        'active_page': 'contatos'
+    }
+    
+    return render(request, 'portal/contato_form.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def contato_delete(request, customer_id):
+    """Deletar (soft delete) contato"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    customer = get_object_or_404(Customer, id=customer_id, office=request.office)
+    name = customer.name
+    customer.soft_delete()
+    
+    ActivityLog.objects.create(
+        organization=request.organization,
+        office=request.office,
+        actor=request.user,
+        verb="customer_delete",
+        description=f"Contato deletado: {name}"
+    )
+    
+    return JsonResponse({"ok": True})
+
+
+# ==================== INTERAÇÕES ====================
+
+@login_required
+@require_http_methods(["POST"])
+def contato_interaction_create(request, customer_id):
+    """Criar interação (JSON)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    customer = get_object_or_404(Customer, id=customer_id, office=request.office, is_deleted=False)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    from django.utils.dateparse import parse_datetime
+    date = parse_datetime(payload.get('date') + 'T' + payload.get('time', '12:00'))
+    
+    interaction = CustomerInteraction.objects.create(
+        organization=request.organization,
+        office=request.office,
+        customer=customer,
+        type=payload.get('type', 'note'),
+        date=date or timezone.now(),
+        subject=payload.get('subject', '').strip(),
+        description=payload.get('description', '').strip(),
+        created_by=request.user
+    )
+    
+    # Atualiza última interação
+    customer.last_interaction_date = timezone.now().date()
+    customer.save(update_fields=['last_interaction_date'])
+    
+    return JsonResponse({
+        "ok": True,
+        "interaction": {
+            "id": interaction.id,
+            "type": interaction.get_type_display(),
+            "date": interaction.date.strftime('%d/%m/%Y %H:%M'),
+            "subject": interaction.subject
+        }
+    })
+
+
+# ==================== IMPORTAÇÃO/EXPORTAÇÃO ====================
+
+@login_required
+def contatos_export(request):
+    """Exportar contatos para Excel"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    customers = Customer.objects.filter(office=request.office, is_deleted=False).order_by('name')
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Contatos"
+    
+    # Cabeçalhos
+    headers = [
+        'Nome', 'CPF/CNPJ', 'Tipo', 'Status', 'Email', 'Telefone',
+        'Endereço', 'Cidade', 'Estado', 'CEP', 'Origem', 'Tags', 'Criado em'
+    ]
+    ws.append(headers)
+    
+    # Dados
+    for c in customers:
+        ws.append([
+            c.name,
+            c.document,
+            c.get_type_display(),
+            c.get_status_display(),
+            c.email,
+            c.phone,
+            c.full_address,
+            c.address_city,
+            c.address_state,
+            c.address_zipcode,
+            c.get_origin_display(),
+            c.tags,
+            c.created_at.strftime('%d/%m/%Y')
+        ])
+    
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = 'attachment; filename=contatos.xlsx'
+    wb.save(response)
+    
+    return response
+
+
+@login_required
+@require_http_methods(["POST"])
+def contatos_import(request):
+    """Importar contatos de CSV"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    if 'file' not in request.FILES:
+        return JsonResponse({"error": "Nenhum arquivo enviado"}, status=400)
+    
+    file = request.FILES['file']
+    
+    try:
+        decoded_file = file.read().decode('utf-8')
+        io_string = io.StringIO(decoded_file)
+        reader = csv.DictReader(io_string)
+        
+        created = 0
+        errors = []
+        
+        for row in reader:
+            try:
+                Customer.objects.create(
+                    organization=request.organization,
+                    office=request.office,
+                    name=row.get('nome', '').strip(),
+                    document=row.get('cpf_cnpj', '').strip(),
+                    type=row.get('tipo', 'PF'),
+                    email=row.get('email', '').strip(),
+                    phone=row.get('telefone', '').strip(),
+                    status='lead',
+                    responsible=request.user
+                )
+                created += 1
+            except Exception as e:
+                errors.append(f"Linha {reader.line_num}: {str(e)}")
+        
+        return JsonResponse({
+            "ok": True,
+            "created": created,
+            "errors": errors
+        })
+        
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+# Fim Contatos Views
 
 @login_required
 def agenda(request):
@@ -288,13 +748,96 @@ def agenda(request):
     templates = CalendarEventTemplate.objects.filter(office=request.office, is_active=True).order_by("title")
     return render(request, "portal/agenda.html", {"templates": templates, "active_page":"agenda"})
 
+#Tarefas e Kanban
+
 @login_required
 def kanban(request):
     forbid = _ensure_portal_user(request)
     if forbid: return forbid
     must = _ensure_office(request)
     if must: return must
-    return render(request, "portal/kanban.html", {"active_page":"kanban"})
+    return render(request, "portal/tasks_kanban.html", {"active_page":"kanban"})
+
+@login_required
+def task_list(request):
+    """
+    Lista de Tarefas — view principal (usa KanbanCards como backend por ora).
+    """
+    forbid = _ensure_portal_user(request)
+    if forbid:
+        return forbid
+    must = _ensure_office(request)
+    if must:
+        return must
+
+    from django.core.paginator import Paginator
+    from django.db import models as django_models
+
+    search   = request.GET.get("search", "").strip()
+    status_f = request.GET.get("status", "")
+
+    board, _ = KanbanBoard.objects.get_or_create(
+        organization=request.organization,
+        office=request.office,
+    )
+
+    cards_qs = KanbanCard.objects.filter(board=board).select_related("column")
+
+    if search:
+        cards_qs = cards_qs.filter(
+            django_models.Q(title__icontains=search) |
+            django_models.Q(body_md__icontains=search)
+        )
+
+    STATUS_MAP = {
+        "backlog":      "todo",
+        "to do":        "todo",
+        "a fazer":      "todo",
+        "in progress":  "doing",
+        "em andamento": "doing",
+        "fazendo":      "doing",
+        "done":         "done",
+        "concluído":    "done",
+        "finalizado":   "done",
+        "blocked":      "blocked",
+        "bloqueado":    "blocked",
+    }
+
+    card_list = []
+    for c in cards_qs.order_by("column__order", "order"):
+        col_key    = c.column.title.lower().strip()
+        c._status      = STATUS_MAP.get(col_key, "todo")
+        c._column_name = c.column.title
+        if status_f and c._status != status_f:
+            continue
+        card_list.append(c)
+
+    paginator = Paginator(card_list, settings.PORTAL_PAGINATION_SIZE)
+    page      = request.GET.get("page", 1)
+    tasks     = paginator.get_page(page)
+
+    STATUS_CHOICES = [
+        ("todo",    "A fazer"),
+        ("doing",   "Em andamento"),
+        ("blocked", "Bloqueada"),
+        ("done",    "Concluída"),
+    ]
+
+    return render(request, "portal/tasks_list.html", {
+        "tasks":          tasks,
+        "search":         search,
+        "status_f":       status_f,
+        "priority_f":     "",
+        "assigned_f":     "",
+        "due_filter":     "",
+        "status_choices": STATUS_CHOICES,
+        "priority_choices": [],
+        "members":        [],
+        "active_page":    "tarefas",   # ← "tarefas", não "kanban"
+        "today":          __import__("django.utils.timezone", fromlist=["timezone"]).timezone.now().date(),
+    })
+
+# Fim Tarefas e Kanban
 
 @login_required
 @require_http_methods(["GET", "POST"])
@@ -1111,3 +1654,1643 @@ def prazos_calendar_json(request):
 
 
 # Fim prazos views
+
+# Finance Views
+
+# ==================== DASHBOARD FINANCEIRO ====================
+
+@login_required
+def financeiro_dashboard(request):
+    """Dashboard financeiro com KPIs e gráficos"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    office = request.office
+    today = timezone.now().date()
+    
+    # Período do filtro (padrão: mês atual)
+    period = request.GET.get('period', 'month')
+    
+    if period == 'month':
+        start_date = today.replace(day=1)
+        end_date = (start_date + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    elif period == 'quarter':
+        quarter = (today.month - 1) // 3
+        start_date = today.replace(month=quarter * 3 + 1, day=1)
+        end_date = (start_date + timedelta(days=93)).replace(day=1) - timedelta(days=1)
+    elif period == 'year':
+        start_date = today.replace(month=1, day=1)
+        end_date = today.replace(month=12, day=31)
+    else:  # all
+        start_date = None
+        end_date = None
+    
+    # Receitas (faturas pagas)
+    invoices_qs = Invoice.objects.filter(office=office)
+    if start_date:
+        invoices_qs = invoices_qs.filter(issue_date__gte=start_date, issue_date__lte=end_date)
+    
+    total_invoiced = invoices_qs.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    total_received = Payment.objects.filter(
+        invoice__office=office,
+        paid_at__gte=start_date if start_date else today.replace(year=2000)
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    
+    # Despesas
+    expenses_qs = Expense.objects.filter(office=office, status='paid')
+    if start_date:
+        expenses_qs = expenses_qs.filter(date__gte=start_date, date__lte=end_date)
+    
+    total_expenses = expenses_qs.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    
+    # Lucro
+    profit = total_received - total_expenses
+    profit_margin = (profit / total_received * 100) if total_received > 0 else 0
+    
+    # A receber (faturas pendentes)
+    pending_invoices = Invoice.objects.filter(
+        office=office,
+        status__in=['issued', 'sent', 'overdue']
+    ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+    
+    # Vencidas
+    overdue_invoices = Invoice.objects.filter(
+        office=office,
+        status='overdue'
+    ).count()
+    
+    # Gráfico mensal (últimos 6 meses)
+    six_months_ago = today - timedelta(days=180)
+    monthly_data = Payment.objects.filter(
+        invoice__office=office,
+        paid_at__gte=six_months_ago
+    ).annotate(
+        month=TruncMonth('paid_at')
+    ).values('month').annotate(
+        receitas=Sum('amount')
+    ).order_by('month')
+    
+    monthly_expenses = Expense.objects.filter(
+        office=office,
+        status='paid',
+        date__gte=six_months_ago
+    ).annotate(
+        month=TruncMonth('date')
+    ).values('month').annotate(
+        despesas=Sum('amount')
+    ).order_by('month')
+    
+    # Combinar dados mensais
+    months_dict = {}
+    for item in monthly_data:
+        key = item['month'].strftime('%Y-%m')
+        months_dict[key] = {
+            'month': item['month'].strftime('%b/%y'),
+            'receitas': float(item['receitas']),
+            'despesas': 0
+        }
+    
+    for item in monthly_expenses:
+        key = item['month'].strftime('%Y-%m')
+        if key in months_dict:
+            months_dict[key]['despesas'] = float(item['despesas'])
+        else:
+            months_dict[key] = {
+                'month': item['month'].strftime('%b/%y'),
+                'receitas': 0,
+                'despesas': float(item['despesas'])
+            }
+    
+    chart_data = list(months_dict.values())
+    
+    # Top clientes
+    top_customers = FeeAgreement.objects.filter(
+        office=office,
+        status='active'
+    ).values('customer__name').annotate(
+        total=Sum('amount')
+    ).order_by('-total')[:5]
+    
+    # Despesas por categoria
+    expenses_by_category = Expense.objects.filter(
+        office=office,
+        status='paid'
+    ).values('category').annotate(
+        total=Sum('amount')
+    ).order_by('-total')[:5]
+    
+    context = {
+        'period': period,
+        'total_invoiced': total_invoiced,
+        'total_received': total_received,
+        'total_expenses': total_expenses,
+        'profit': profit,
+        'profit_margin': profit_margin,
+        'pending_invoices': pending_invoices,
+        'overdue_invoices': overdue_invoices,
+        'chart_data_json': json.dumps(chart_data),
+        'top_customers': top_customers,
+        'expenses_by_category': expenses_by_category,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_dashboard.html', context)
+
+
+# ==================== CONTRATOS ====================
+
+@login_required
+def financeiro_contratos(request):
+    """Lista de contratos de honorários"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    status_filter = request.GET.get('status', '')
+    billing_type = request.GET.get('billing_type', '')
+    
+    qs = FeeAgreement.objects.filter(office=request.office).select_related('customer', 'process')
+    
+    if search:
+        qs = qs.filter(
+            Q(title__icontains=search) |
+            Q(customer__name__icontains=search) |
+            Q(description__icontains=search)
+        )
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if billing_type:
+        qs = qs.filter(billing_type=billing_type)
+    
+    qs = qs.order_by('-created_at')
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    agreements = paginator.get_page(page)
+    
+    # Adiciona dados computados
+    for agr in agreements:
+        agr.total_received_amount = agr.total_received
+        agr.balance_amount = agr.balance
+    
+    context = {
+        'agreements': agreements,
+        'search': search,
+        'status_filter': status_filter,
+        'billing_type': billing_type,
+        'status_choices': FeeAgreement.STATUS_CHOICES,
+        'billing_type_choices': FeeAgreement.BILLING_TYPE_CHOICES,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_contratos.html', context)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def financeiro_contrato_create(request):
+    """Criar contrato de honorários"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    if request.method == "POST":
+        data = request.POST
+        
+        # Validações básicas
+        customer_id = data.get('customer_id')
+        title = data.get('title', '').strip()
+        amount = data.get('amount')
+        
+        if not customer_id or not title or not amount:
+            messages.error(request, "Cliente, título e valor são obrigatórios")
+            return redirect('portal:financeiro_contrato_create')
+        
+        try:
+            customer = Customer.objects.get(id=customer_id, office=request.office)
+            
+            agreement = FeeAgreement.objects.create(
+                organization=request.organization,
+                office=request.office,
+                customer=customer,
+                title=title,
+                description=data.get('description', ''),
+                amount=Decimal(amount),
+                billing_type=data.get('billing_type', 'one_time'),
+                installments=int(data.get('installments', 1)),
+                status=data.get('status', 'draft'),
+                notes=data.get('notes', ''),
+                responsible=request.user
+            )
+            
+            # Vincula processo se informado
+            process_id = data.get('process_id')
+            if process_id:
+                try:
+                    process = Process.objects.get(id=process_id, office=request.office)
+                    agreement.process = process
+                    agreement.save()
+                except Process.DoesNotExist:
+                    pass
+            
+            ActivityLog.objects.create(
+                organization=request.organization,
+                office=request.office,
+                actor=request.user,
+                verb="agreement_create",
+                description=f"Novo contrato: {title}"
+            )
+            
+            messages.success(request, "Contrato criado com sucesso!")
+            return redirect('portal:financeiro_contrato_detail', agreement.id)
+            
+        except Exception as e:
+            messages.error(request, f"Erro ao criar contrato: {str(e)}")
+    
+    # GET - buscar clientes para dropdown
+    customers = Customer.objects.filter(office=request.office).order_by('name')
+    
+    context = {
+        'customers': customers,
+        'billing_type_choices': FeeAgreement.BILLING_TYPE_CHOICES,
+        'status_choices': FeeAgreement.STATUS_CHOICES,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_contrato_form.html', context)
+
+
+@login_required
+def financeiro_contrato_detail(request, agreement_id):
+    """Detalhes do contrato"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    agreement = get_object_or_404(
+        FeeAgreement.objects.select_related('customer', 'process'),
+        id=agreement_id,
+        office=request.office
+    )
+    
+    # Faturas do contrato
+    invoices = agreement.invoices.order_by('-issue_date')
+    
+    # Totais
+    total_invoiced = agreement.total_invoiced
+    total_received = agreement.total_received
+    balance = agreement.balance
+    
+    context = {
+        'agreement': agreement,
+        'invoices': invoices,
+        'total_invoiced': total_invoiced,
+        'total_received': total_received,
+        'balance': balance,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_contrato_detail.html', context)
+
+
+# ==================== FATURAS ====================
+
+@login_required
+def financeiro_faturas(request):
+    """Lista de faturas"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    status_filter = request.GET.get('status', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    
+    qs = Invoice.objects.filter(office=request.office).select_related('agreement__customer')
+    
+    if search:
+        qs = qs.filter(
+            Q(number__icontains=search) |
+            Q(agreement__customer__name__icontains=search) |
+            Q(description__icontains=search)
+        )
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if date_from:
+        from django.utils.dateparse import parse_date
+        df = parse_date(date_from)
+        if df:
+            qs = qs.filter(issue_date__gte=df)
+    
+    if date_to:
+        from django.utils.dateparse import parse_date
+        dt = parse_date(date_to)
+        if dt:
+            qs = qs.filter(issue_date__lte=dt)
+    
+    qs = qs.order_by('-issue_date')
+    
+    # Marca vencidas automaticamente
+    today = timezone.now().date()
+    for inv in qs.filter(status__in=['issued', 'sent'], due_date__lt=today):
+        if inv.status != 'overdue':
+            inv.status = 'overdue'
+            inv.save(update_fields=['status'])
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    invoices = paginator.get_page(page)
+    
+    # Adiciona dados computados
+    for inv in invoices:
+        inv.paid_amount_value = inv.paid_amount
+        inv.balance_value = inv.balance
+    
+    context = {
+        'invoices': invoices,
+        'search': search,
+        'status_filter': status_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'status_choices': Invoice.STATUS_CHOICES,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_faturas.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def financeiro_fatura_create(request):
+    """Criar fatura (JSON)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    agreement_id = payload.get('agreement_id')
+    number = payload.get('number', '').strip()
+    issue_date = payload.get('issue_date')
+    due_date = payload.get('due_date')
+    amount = payload.get('amount')
+    
+    if not all([agreement_id, number, issue_date, due_date, amount]):
+        return JsonResponse({"error": "Campos obrigatórios faltando"}, status=400)
+    
+    try:
+        agreement = FeeAgreement.objects.get(id=agreement_id, office=request.office)
+        
+        from django.utils.dateparse import parse_date
+        issue_date_obj = parse_date(issue_date)
+        due_date_obj = parse_date(due_date)
+        
+        invoice = Invoice.objects.create(
+            organization=request.organization,
+            office=request.office,
+            agreement=agreement,
+            number=number,
+            issue_date=issue_date_obj,
+            due_date=due_date_obj,
+            amount=Decimal(amount),
+            discount=Decimal(payload.get('discount', '0.00')),
+            status=payload.get('status', 'draft'),
+            description=payload.get('description', ''),
+            notes=payload.get('notes', '')
+        )
+        
+        ActivityLog.objects.create(
+            organization=request.organization,
+            office=request.office,
+            actor=request.user,
+            verb="invoice_create",
+            description=f"Nova fatura: {number}"
+        )
+        
+        return JsonResponse({
+            "ok": True,
+            "invoice": {
+                "id": invoice.id,
+                "number": invoice.number
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(["POST"])
+def financeiro_fatura_registrar_pagamento(request, invoice_id):
+    """Registrar pagamento de fatura"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    invoice = get_object_or_404(Invoice, id=invoice_id, office=request.office)
+    
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    amount = payload.get('amount')
+    paid_at = payload.get('paid_at')
+    method = payload.get('method', 'pix')
+    
+    if not all([amount, paid_at]):
+        return JsonResponse({"error": "Valor e data são obrigatórios"}, status=400)
+    
+    try:
+        from django.utils.dateparse import parse_date
+        paid_at_obj = parse_date(paid_at)
+        
+        payment = Payment.objects.create(
+            organization=request.organization,
+            office=request.office,
+            invoice=invoice,
+            amount=Decimal(amount),
+            paid_at=paid_at_obj,
+            method=method,
+            reference=payload.get('reference', ''),
+            notes=payload.get('notes', ''),
+            recorded_by=request.user
+        )
+        
+        # Atualiza status da fatura
+        if invoice.balance <= 0:
+            invoice.status = 'paid'
+            invoice.save(update_fields=['status'])
+        
+        ActivityLog.objects.create(
+            organization=request.organization,
+            office=request.office,
+            actor=request.user,
+            verb="payment_create",
+            description=f"Pagamento registrado: R$ {amount} - Fatura {invoice.number}"
+        )
+        
+        return JsonResponse({"ok": True})
+        
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+# ==================== DESPESAS ====================
+
+@login_required
+def financeiro_despesas(request):
+    """Lista de despesas"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    category = request.GET.get('category', '')
+    status_filter = request.GET.get('status', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    
+    qs = Expense.objects.filter(office=request.office)
+    
+    if search:
+        qs = qs.filter(
+            Q(title__icontains=search) |
+            Q(description__icontains=search) |
+            Q(supplier__icontains=search)
+        )
+    
+    if category:
+        qs = qs.filter(category=category)
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if date_from:
+        from django.utils.dateparse import parse_date
+        df = parse_date(date_from)
+        if df:
+            qs = qs.filter(date__gte=df)
+    
+    if date_to:
+        from django.utils.dateparse import parse_date
+        dt = parse_date(date_to)
+        if dt:
+            qs = qs.filter(date__lte=dt)
+    
+    qs = qs.order_by('-date')
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    expenses = paginator.get_page(page)
+    
+    context = {
+        'expenses': expenses,
+        'search': search,
+        'category': category,
+        'status_filter': status_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'category_choices': Expense.CATEGORY_CHOICES,
+        'status_choices': Expense.STATUS_CHOICES,
+        'active_page': 'financeiro'
+    }
+    
+    return render(request, 'portal/financeiro_despesas.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def financeiro_despesa_create(request):
+    """Criar despesa (JSON)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    title = payload.get('title', '').strip()
+    amount = payload.get('amount')
+    date = payload.get('date')
+    category = payload.get('category', 'other')
+    
+    if not all([title, amount, date]):
+        return JsonResponse({"error": "Título, valor e data são obrigatórios"}, status=400)
+    
+    try:
+        from django.utils.dateparse import parse_date
+        date_obj = parse_date(date)
+        
+        expense = Expense.objects.create(
+            organization=request.organization,
+            office=request.office,
+            title=title,
+            description=payload.get('description', ''),
+            category=category,
+            date=date_obj,
+            amount=Decimal(amount),
+            status=payload.get('status', 'pending'),
+            supplier=payload.get('supplier', ''),
+            reference=payload.get('reference', ''),
+            notes=payload.get('notes', ''),
+            responsible=request.user
+        )
+        
+        ActivityLog.objects.create(
+            organization=request.organization,
+            office=request.office,
+            actor=request.user,
+            verb="expense_create",
+            description=f"Nova despesa: {title}"
+        )
+        
+        return JsonResponse({
+            "ok": True,
+            "expense": {
+                "id": expense.id,
+                "title": expense.title
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+@login_required
+@require_http_methods(["POST"])
+def financeiro_despesa_update(request, expense_id):
+    """Atualizar despesa (JSON)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    expense = get_object_or_404(Expense, id=expense_id, office=request.office)
+    
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    if 'title' in payload:
+        expense.title = payload['title'].strip()
+    if 'amount' in payload:
+        expense.amount = Decimal(payload['amount'])
+    if 'date' in payload:
+        from django.utils.dateparse import parse_date
+        expense.date = parse_date(payload['date'])
+    if 'category' in payload:
+        expense.category = payload['category']
+    if 'status' in payload:
+        expense.status = payload['status']
+    if 'description' in payload:
+        expense.description = payload['description']
+    if 'supplier' in payload:
+        expense.supplier = payload['supplier']
+    if 'reference' in payload:
+        expense.reference = payload['reference']
+    if 'notes' in payload:
+        expense.notes = payload['notes']
+    
+    expense.save()
+    
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_http_methods(["POST"])
+def financeiro_despesa_delete(request, expense_id):
+    """Deletar despesa"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    expense = get_object_or_404(Expense, id=expense_id, office=request.office)
+    title = expense.title
+    expense.delete()
+    
+    ActivityLog.objects.create(
+        organization=request.organization,
+        office=request.office,
+        actor=request.user,
+        verb="expense_delete",
+        description=f"Despesa deletada: {title}"
+    )
+    
+    return JsonResponse({"ok": True})
+
+
+@login_required
+def financeiro_despesa_detail(request, expense_id):
+    """Detalhes da despesa (JSON)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    expense = get_object_or_404(Expense, id=expense_id, office=request.office)
+    
+    return JsonResponse({
+        "id": expense.id,
+        "title": expense.title,
+        "description": expense.description or "",
+        "category": expense.category,
+        "date": expense.date.isoformat(),
+        "amount": str(expense.amount),
+        "status": expense.status,
+        "supplier": expense.supplier or "",
+        "reference": expense.reference or "",
+        "notes": expense.notes or ""
+    })
+
+# Fim finance Views
+
+#
+
+
+
+# ==================== DASHBOARD DOCUMENTOS ====================
+
+@login_required
+def documentos_dashboard(request):
+    """Dashboard de documentos"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    office = request.office
+    
+    # Estatísticas
+    total = Document.objects.filter(office=office).count()
+    by_category = Document.objects.filter(office=office).values('category').annotate(count=Count('id')).order_by('-count')[:10]
+    by_status = Document.objects.filter(office=office).values('status').annotate(count=Count('id'))
+    
+    # Tamanho total
+    total_size = sum([d.file_size for d in Document.objects.filter(office=office)])
+    total_size_mb = round(total_size / (1024 * 1024), 2)
+    
+    # Recentes
+    recent = Document.objects.filter(office=office).select_related('uploaded_by').order_by('-created_at')[:10]
+    
+    # Vencidos
+    from django.utils import timezone
+    expired = Document.objects.filter(
+        office=office,
+        expiry_date__lt=timezone.now().date()
+    ).order_by('expiry_date')[:10]
+    
+    # Templates
+    templates = Document.objects.filter(office=office, is_template=True).order_by('title')[:10]
+    
+    # Top tags
+    all_docs = Document.objects.filter(office=office).exclude(tags='')
+    tags_count = {}
+    for d in all_docs:
+        for tag in d.tag_list:
+            tags_count[tag] = tags_count.get(tag, 0) + 1
+    top_tags = sorted(tags_count.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    context = {
+        'total': total,
+        'total_size_mb': total_size_mb,
+        'by_category': list(by_category),
+        'by_status': list(by_status),
+        'recent': recent,
+        'expired': expired,
+        'templates': templates,
+        'top_tags': top_tags,
+        'active_page': 'documentos'
+    }
+    
+    return render(request, 'portal/documentos_dashboard.html', context)
+
+
+# ==================== LISTA E CRUD ====================
+
+@login_required
+def documentos(request):
+    """Lista de documentos com filtros"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    category_filter = request.GET.get('category', '')
+    status_filter = request.GET.get('status', '')
+    tag_filter = request.GET.get('tag', '')
+    folder_id = request.GET.get('folder', '')
+    
+    qs = Document.objects.filter(office=request.office).select_related('uploaded_by', 'process', 'customer')
+    
+    if search:
+        qs = qs.filter(
+            Q(title__icontains=search) |
+            Q(description__icontains=search) |
+            Q(tags__icontains=search)
+        )
+    
+    if category_filter:
+        qs = qs.filter(category=category_filter)
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if tag_filter:
+        qs = qs.filter(tags__icontains=tag_filter)
+    
+    if folder_id:
+        qs = qs.filter(folder_links__folder_id=folder_id)
+    
+    qs = qs.order_by('-created_at')
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    documents = paginator.get_page(page)
+    
+    # Pastas
+    folders = Folder.objects.filter(office=request.office, parent__isnull=True).order_by('name')
+    
+    # Tags
+    all_tags = set()
+    for d in Document.objects.filter(office=request.office).exclude(tags=''):
+        all_tags.update(d.tag_list)
+    
+    context = {
+        'documents': documents,
+        'folders': folders,
+        'search': search,
+        'category_filter': category_filter,
+        'status_filter': status_filter,
+        'tag_filter': tag_filter,
+        'folder_id': folder_id,
+        'category_choices': Document.CATEGORY_CHOICES,
+        'status_choices': Document.STATUS_CHOICES,
+        'all_tags': sorted(all_tags),
+        'active_page': 'documentos'
+    }
+    
+    return render(request, 'portal/documentos.html', context)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def documento_upload(request):
+    """Upload de documento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    if request.method == "POST":
+        if 'file' not in request.FILES:
+            messages.error(request, "Nenhum arquivo selecionado.")
+            return redirect('portal:documento_upload')
+        
+        file = request.FILES['file']
+        data = request.POST
+        
+        try:
+            document = Document.objects.create(
+                organization=request.organization,
+                office=request.office,
+                title=data.get('title', file.name).strip(),
+                description=data.get('description', '').strip(),
+                category=data.get('category', 'other'),
+                status=data.get('status', 'draft'),
+                file=file,
+                tags=data.get('tags', '').strip(),
+                is_confidential=data.get('is_confidential') == 'on',
+                is_template=data.get('is_template') == 'on',
+                uploaded_by=request.user
+            )
+            
+            # Vincular processo
+            if data.get('process_id'):
+                from apps.processes.models import Process
+                try:
+                    process = Process.objects.get(id=data.get('process_id'), office=request.office)
+                    document.process = process
+                    document.save()
+                except Process.DoesNotExist:
+                    pass
+            
+            # Vincular cliente
+            if data.get('customer_id'):
+                from apps.customers.models import Customer
+                try:
+                    customer = Customer.objects.get(id=data.get('customer_id'), office=request.office)
+                    document.customer = customer
+                    document.save()
+                except Customer.DoesNotExist:
+                    pass
+            
+            # Adicionar a pasta
+            if data.get('folder_id'):
+                try:
+                    folder = Folder.objects.get(id=data.get('folder_id'), office=request.office)
+                    DocumentFolder.objects.create(
+                        document=document,
+                        folder=folder,
+                        added_by=request.user
+                    )
+                except Folder.DoesNotExist:
+                    pass
+            
+            ActivityLog.objects.create(
+                organization=request.organization,
+                office=request.office,
+                actor=request.user,
+                verb="document_upload",
+                description=f"Upload: {document.title}"
+            )
+            
+            messages.success(request, f"Documento {document.title} enviado com sucesso!")
+            return redirect('portal:documento_detail', document.id)
+            
+        except Exception as e:
+            messages.error(request, f"Erro ao enviar documento: {str(e)}")
+    
+    # GET
+    folders = Folder.objects.filter(office=request.office).order_by('name')
+    
+    context = {
+        'category_choices': Document.CATEGORY_CHOICES,
+        'status_choices': Document.STATUS_CHOICES,
+        'folders': folders,
+        'active_page': 'documentos'
+    }
+    
+    return render(request, 'portal/documento_upload.html', context)
+
+
+@login_required
+def documento_detail(request, document_id):
+    """Detalhes do documento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    document = get_object_or_404(
+        Document.objects.select_related('uploaded_by', 'process', 'customer'),
+        id=document_id,
+        office=request.office
+    )
+    
+    # Versões
+    versions = document.versions.select_related('created_by').order_by('-version_number')
+    
+    # Compartilhamentos
+    shares = document.shares.select_related('shared_with', 'shared_by').order_by('-created_at')
+    
+    # Comentários
+    comments = document.comments.select_related('author').order_by('-created_at')
+    
+    # Pastas
+    folders = document.folder_links.select_related('folder').all()
+    
+    context = {
+        'document': document,
+        'versions': versions,
+        'shares': shares,
+        'comments': comments,
+        'folders': folders,
+        'active_page': 'documentos'
+    }
+    
+    return render(request, 'portal/documento_detail.html', context)
+
+
+@login_required
+def documento_download(request, document_id):
+    """Download de documento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    document = get_object_or_404(Document, id=document_id, office=request.office)
+    
+    ActivityLog.objects.create(
+        organization=request.organization,
+        office=request.office,
+        actor=request.user,
+        verb="document_download",
+        description=f"Download: {document.title}"
+    )
+    
+    return FileResponse(document.file.open('rb'), as_attachment=True, filename=document.file.name)
+
+
+@login_required
+@require_http_methods(["POST"])
+def documento_delete(request, document_id):
+    """Deletar documento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    document = get_object_or_404(Document, id=document_id, office=request.office)
+    title = document.title
+    
+    # Deletar arquivo físico
+    if document.file:
+        document.file.delete()
+    
+    document.delete()
+    
+    ActivityLog.objects.create(
+        organization=request.organization,
+        office=request.office,
+        actor=request.user,
+        verb="document_delete",
+        description=f"Documento deletado: {title}"
+    )
+    
+    return JsonResponse({"ok": True})
+
+
+# ==================== VERSÕES ====================
+
+@login_required
+@require_http_methods(["POST"])
+def documento_version_create(request, document_id):
+    """Criar nova versão"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    document = get_object_or_404(Document, id=document_id, office=request.office)
+    
+    if 'file' not in request.FILES:
+        return JsonResponse({"error": "Arquivo não enviado"}, status=400)
+    
+    file = request.FILES['file']
+    changes = request.POST.get('changes_description', '').strip()
+    
+    # Próximo número de versão
+    last_version = document.versions.order_by('-version_number').first()
+    next_version = (last_version.version_number + 1) if last_version else 1
+    
+    version = DocumentVersion.objects.create(
+        document=document,
+        version_number=next_version,
+        file=file,
+        changes_description=changes,
+        created_by=request.user
+    )
+    
+    return JsonResponse({
+        "ok": True,
+        "version": {
+            "id": version.id,
+            "version_number": version.version_number,
+            "created_at": version.created_at.strftime('%d/%m/%Y %H:%M')
+        }
+    })
+
+
+@login_required
+def documento_version_download(request, version_id):
+    """Download de versão específica"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    version = get_object_or_404(
+        DocumentVersion.objects.select_related('document'),
+        id=version_id,
+        document__office=request.office
+    )
+    
+    return FileResponse(version.file.open('rb'), as_attachment=True, filename=version.file.name)
+
+
+# ==================== COMPARTILHAMENTO ====================
+
+@login_required
+@require_http_methods(["POST"])
+def documento_share_create(request, document_id):
+    """Compartilhar documento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    document = get_object_or_404(Document, id=document_id, office=request.office)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    user_id = payload.get('user_id')
+    can_edit = payload.get('can_edit', False)
+    can_download = payload.get('can_download', True)
+    
+    from apps.accounts.models import User
+    try:
+        user = User.objects.get(id=user_id)
+        
+        share, created = DocumentShare.objects.get_or_create(
+            organization=request.organization,
+            office=request.office,
+            document=document,
+            shared_with=user,
+            defaults={
+                'shared_by': request.user,
+                'can_edit': can_edit,
+                'can_download': can_download
+            }
+        )
+        
+        if not created:
+            share.can_edit = can_edit
+            share.can_download = can_download
+            share.save()
+        
+        return JsonResponse({"ok": True, "created": created})
+        
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Usuário não encontrado"}, status=404)
+
+
+@login_required
+@require_http_methods(["POST"])
+def documento_share_delete(request, share_id):
+    """Remover compartilhamento"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    share = get_object_or_404(DocumentShare, id=share_id, office=request.office)
+    share.delete()
+    
+    return JsonResponse({"ok": True})
+
+
+# ==================== COMENTÁRIOS ====================
+
+@login_required
+@require_http_methods(["POST"])
+def documento_comment_create(request, document_id):
+    """Criar comentário"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    document = get_object_or_404(Document, id=document_id, office=request.office)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    comment_text = payload.get('comment', '').strip()
+    
+    if not comment_text:
+        return JsonResponse({"error": "Comentário vazio"}, status=400)
+    
+    comment = DocumentComment.objects.create(
+        organization=request.organization,
+        office=request.office,
+        document=document,
+        author=request.user,
+        comment=comment_text
+    )
+    
+    return JsonResponse({
+        "ok": True,
+        "comment": {
+            "id": comment.id,
+            "author": comment.author.get_full_name() or comment.author.email,
+            "comment": comment.comment,
+            "created_at": comment.created_at.strftime('%d/%m/%Y %H:%M')
+        }
+    })
+
+
+# ==================== PASTAS ====================
+
+@login_required
+def pastas(request):
+    """Gestão de pastas"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    folders = Folder.objects.filter(office=request.office, parent__isnull=True).prefetch_related('subfolders').order_by('name')
+    
+    context = {
+        'folders': folders,
+        'active_page': 'documentos'
+    }
+    
+    return render(request, 'portal/pastas.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def pasta_create(request):
+    """Criar pasta"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    name = payload.get('name', '').strip()
+    parent_id = payload.get('parent_id')
+    
+    if not name:
+        return JsonResponse({"error": "Nome obrigatório"}, status=400)
+    
+    parent = None
+    if parent_id:
+        try:
+            parent = Folder.objects.get(id=parent_id, office=request.office)
+        except Folder.DoesNotExist:
+            pass
+    
+    folder = Folder.objects.create(
+        organization=request.organization,
+        office=request.office,
+        name=name,
+        parent=parent,
+        created_by=request.user
+    )
+    
+    return JsonResponse({
+        "ok": True,
+        "folder": {
+            "id": folder.id,
+            "name": folder.name,
+            "full_path": folder.full_path
+        }
+    })
+
+
+@login_required
+@require_http_methods(["POST"])
+def pasta_delete(request, folder_id):
+    """Deletar pasta"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    folder = get_object_or_404(Folder, id=folder_id, office=request.office)
+    
+    # Verifica se tem documentos ou subpastas
+    if folder.documents.exists() or folder.subfolders.exists():
+        return JsonResponse({"error": "Pasta não está vazia"}, status=400)
+    
+    folder.delete()
+    return JsonResponse({"ok": True})
+
+    # Publicações
+# ==================== DASHBOARD ====================
+
+@login_required
+def publicacoes_dashboard(request):
+    """Dashboard MVP: contadores + listas simples"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    office = request.office
+    
+    # Contadores
+    events = JudicialEvent.objects.filter(office=office)
+    total_new = events.filter(status='new').count()
+    total_urgent = events.filter(urgency__in=['urgent', 'critical']).count()
+    total_unassigned = events.filter(assigned_to__isnull=True, status='new').count()
+    
+    # Prazos próximos (< 7 dias)
+    from datetime import timedelta
+    week_later = timezone.now().date() + timedelta(days=7)
+    events_with_deadline = events.filter(deadline__isnull=False, deadline__due_date__lte=week_later).select_related('publication', 'deadline')
+    
+    # Publicações recentes
+    recent_pubs = Publication.objects.filter(office=office).select_related('imported_by').order_by('-publication_date')[:10]
+    
+    # Não atribuídas
+    unassigned = events.filter(assigned_to__isnull=True, status='new').select_related('publication')[:10]
+    
+    context = {
+        'total_new': total_new,
+        'total_urgent': total_urgent,
+        'total_unassigned': total_unassigned,
+        'events_with_deadline': events_with_deadline,
+        'recent_pubs': recent_pubs,
+        'unassigned': unassigned,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacoes_dashboard.html', context)
+
+
+# ==================== LISTA ====================
+
+@login_required
+def publicacoes(request):
+    """Lista de eventos jurídicos (não publicações brutas)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    # Filtros
+    search = request.GET.get('search', '')
+    event_type = request.GET.get('type', '')
+    status_filter = request.GET.get('status', '')
+    urgency_filter = request.GET.get('urgency', '')
+    assigned_filter = request.GET.get('assigned', '')
+    
+    qs = JudicialEvent.objects.filter(office=request.office).select_related(
+        'publication', 'process', 'assigned_to', 'deadline'
+    )
+    
+    if search:
+        qs = qs.filter(
+            Q(publication__raw_text__icontains=search) |
+            Q(publication__process_cnj__icontains=search) |
+            Q(notes__icontains=search)
+        )
+    
+    if event_type:
+        qs = qs.filter(event_type=event_type)
+    
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    
+    if urgency_filter:
+        qs = qs.filter(urgency=urgency_filter)
+    
+    if assigned_filter:
+        if assigned_filter == 'unassigned':
+            qs = qs.filter(assigned_to__isnull=True)
+        else:
+            qs = qs.filter(assigned_to_id=assigned_filter)
+    
+    qs = qs.order_by('-created_at')
+    
+    # Paginação
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    page = request.GET.get('page', 1)
+    events = paginator.get_page(page)
+    
+    # Usuários para filtro
+    from apps.accounts.models import User
+    users = User.objects.filter(memberships__office=request.office, memberships__is_active=True).distinct()
+    
+    context = {
+        'events': events,
+        'search': search,
+        'event_type': event_type,
+        'status_filter': status_filter,
+        'urgency_filter': urgency_filter,
+        'assigned_filter': assigned_filter,
+        'type_choices': JudicialEvent.TYPE_CHOICES,
+        'status_choices': JudicialEvent.STATUS_CHOICES,
+        'urgency_choices': JudicialEvent.URGENCY_CHOICES,
+        'users': users,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacoes.html', context)
+
+
+# ==================== IMPORTAÇÃO ====================
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def publicacao_import(request):
+    """Importação manual (texto colado - MVP)"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    if request.method == "POST":
+        raw_text = request.POST.get('raw_text', '').strip()
+        pub_date = request.POST.get('publication_date', '')
+        source = request.POST.get('source', 'manual')
+        
+        if not raw_text or not pub_date:
+            messages.error(request, "Texto e data são obrigatórios.")
+            return redirect('portal:publicacao_import')
+        
+        from datetime import datetime
+        try:
+            pub_date_obj = datetime.strptime(pub_date, '%Y-%m-%d').date()
+        except:
+            messages.error(request, "Data inválida.")
+            return redirect('portal:publicacao_import')
+        
+        # Cria log de importação
+        import_log = PublicationImport.objects.create(
+            organization=request.organization,
+            office=request.office,
+            source=source,
+            imported_by=request.user,
+            total_found=1
+        )
+        
+        try:
+            # Cria publicação
+            pub = Publication.objects.create(
+                organization=request.organization,
+                office=request.office,
+                source=source,
+                raw_text=raw_text,
+                publication_date=pub_date_obj,
+                imported_by=request.user
+            )
+            
+            # Processa publicação
+            from apps.publications.services import PublicationProcessor
+            event = PublicationProcessor.process(pub, auto_create_event=True)
+            
+            # Atualiza log
+            import_log.total_imported = 1
+            import_log.status = 'success'
+            import_log.summary = f"Publicação importada com sucesso. Evento criado: {event.get_event_type_display() if event else 'Nenhum'}"
+            import_log.finished_at = timezone.now()
+            import_log.save()
+            
+            messages.success(request, f"Publicação importada! Tipo detectado: {event.get_event_type_display() if event else 'Indefinido'}")
+            return redirect('portal:publicacao_detail', pub.id)
+            
+        except Exception as e:
+            import_log.total_errors = 1
+            import_log.status = 'failed'
+            import_log.error_log = str(e)
+            import_log.finished_at = timezone.now()
+            import_log.save()
+            
+            messages.error(request, f"Erro ao importar: {str(e)}")
+    
+    # GET: últimas importações
+    recent_imports = PublicationImport.objects.filter(office=request.office).order_by('-started_at')[:10]
+    
+    context = {
+        'recent_imports': recent_imports,
+        'source_choices': Publication.SOURCE_CHOICES,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacao_import.html', context)
+
+
+# ==================== DETALHES ====================
+
+@login_required
+def publicacao_detail(request, pub_id):
+    """Detalhes da publicação + eventos"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    pub = get_object_or_404(
+        Publication.objects.select_related('imported_by'),
+        id=pub_id,
+        office=request.office
+    )
+    
+    # Eventos jurídicos dessa publicação
+    events = pub.events.select_related('process', 'assigned_to', 'deadline').order_by('-created_at')
+    
+    context = {
+        'publication': pub,
+        'events': events,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacao_detail.html', context)
+
+
+# ==================== AÇÕES JSON ====================
+
+@login_required
+@require_http_methods(["POST"])
+def evento_assign(request, event_id):
+    """Atribuir responsável — restrito a membros do mesmo office."""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+
+    event = get_object_or_404(JudicialEvent, id=event_id, office=request.office)
+
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    user_id = payload.get('user_id')
+
+    if not user_id:
+        return JsonResponse({"error": "user_id obrigatório"}, status=400)
+
+    from apps.accounts.models import User
+    # Segurança: valida que o usuário pertence ao mesmo office via memberships
+    try:
+        user = User.objects.filter(
+            id=user_id,
+            memberships__office=request.office,
+            memberships__is_active=True,
+        ).distinct().get()
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Usuário não encontrado neste escritório"}, status=404)
+
+    event.assigned_to = user
+    event.assigned_at = timezone.now()
+    event.status = 'assigned'
+    event.save(update_fields=['assigned_to', 'assigned_at', 'status'])
+
+    return JsonResponse({"ok": True})
+
+
+@login_required
+@require_http_methods(["POST"])
+def evento_status(request, event_id):
+    """Alterar status"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    event = get_object_or_404(JudicialEvent, id=event_id, office=request.office)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    new_status = payload.get('status')
+    
+    if new_status not in dict(JudicialEvent.STATUS_CHOICES):
+        return JsonResponse({"error": "Status inválido"}, status=400)
+    
+    event.status = new_status
+    if new_status == 'resolved':
+        event.resolved_at = timezone.now()
+    event.save()
+    
+    return JsonResponse({"ok": True})
+
+
+# ==================== REGRAS ====================
+
+@login_required
+def publicacao_rules(request):
+    """Configuração de regras de prazo"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    rules = PublicationRule.objects.filter(office=request.office).order_by('-priority', 'event_type')
+    
+    context = {
+        'rules': rules,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacao_rules.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def publicacao_rule_create(request):
+    """Criar regra"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    try:
+        rule = PublicationRule.objects.create(
+            organization=request.organization,
+            office=request.office,
+            event_type=payload.get('event_type'),
+            description=payload.get('description', ''),
+            base_legal=payload.get('base_legal', ''),
+            days=int(payload.get('days', 15)),
+            business_days=payload.get('business_days', True),
+            auto_create_deadline=payload.get('auto_create_deadline', True),
+            auto_urgency=payload.get('auto_urgency', 'normal'),
+        )
+        
+        return JsonResponse({"ok": True, "rule_id": rule.id})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+
+# ==================== FILTROS ====================
+
+@login_required
+def publicacao_filters(request):
+    """Gestão de filtros/keywords"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return forbid
+    must = _ensure_office(request)
+    if must: return must
+    
+    filters = PublicationFilter.objects.filter(office=request.office).order_by('filter_type', 'value')
+    
+    context = {
+        'filters': filters,
+        'filter_types': PublicationFilter.TYPE_CHOICES,
+        'active_page': 'publicacoes'
+    }
+    
+    return render(request, 'portal/publicacao_filters.html', context)
+
+
+@login_required
+@require_http_methods(["POST"])
+def publicacao_filter_create(request):
+    """Criar filtro"""
+    forbid = _ensure_portal_user(request)
+    if forbid: return JsonResponse({"error": "forbidden"}, status=403)
+    must = _ensure_office(request)
+    if must: return JsonResponse({"error": "office_required"}, status=400)
+    
+    import json
+    payload = json.loads(request.body.decode("utf-8") or "{}")
+    
+    filter_obj = PublicationFilter.objects.create(
+        organization=request.organization,
+        office=request.office,
+        filter_type=payload.get('filter_type'),
+        value=payload.get('value', '').strip(),
+        description=payload.get('description', ''),
+    )
+    
+    return JsonResponse({"ok": True, "filter_id": filter_obj.id})

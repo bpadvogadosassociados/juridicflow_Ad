@@ -2,6 +2,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from apps.organizations.models import OrganizationScopedModel
 
 class OfficePreference(models.Model):
     THEME_CHOICES = [
@@ -152,3 +153,37 @@ class ChatMessage(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+
+class Notification(OrganizationScopedModel):
+    """Notificações do portal para usuários."""
+
+    TYPE_CHOICES = [
+        ("info", "Informação"),
+        ("warning", "Aviso"),
+        ("success", "Sucesso"),
+        ("error", "Erro"),
+        ("deadline", "Prazo"),
+        ("publication", "Publicação"),
+        ("task", "Tarefa"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="portal_notifications",
+    )
+    title = models.CharField(max_length=200)
+    message = models.TextField(blank=True, default="")
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES, default="info")
+    is_read = models.BooleanField(default=False)
+    url = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "is_read", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.type}] {self.title} → {self.user}"
