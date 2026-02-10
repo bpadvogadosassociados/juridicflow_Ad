@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from django.contrib import messages
 from django.db.models import Q, Count, Sum
 from django.db.models.functions import TruncMonth
@@ -14,7 +13,6 @@ from django.conf import settings
 from django.utils import timezone
 from decimal import Decimal
 from apps.documents.models import Document, DocumentVersion, DocumentShare, DocumentComment, Folder, DocumentFolder
-
 from apps.portal.forms import PortalLoginForm, SupportTicketForm
 from apps.portal.models import (
     OfficePreference, ActivityLog, SupportTicket,
@@ -3063,29 +3061,38 @@ def publicacao_detail(request, pub_id):
 @login_required
 @require_http_methods(["POST"])
 def evento_assign(request, event_id):
-    """Atribuir responsável"""
+    """Atribuir responsável — restrito a membros do mesmo office."""
     forbid = _ensure_portal_user(request)
     if forbid: return JsonResponse({"error": "forbidden"}, status=403)
     must = _ensure_office(request)
     if must: return JsonResponse({"error": "office_required"}, status=400)
-    
+
     event = get_object_or_404(JudicialEvent, id=event_id, office=request.office)
-    
+
     import json
     payload = json.loads(request.body.decode("utf-8") or "{}")
     user_id = payload.get('user_id')
-    
+
+    if not user_id:
+        return JsonResponse({"error": "user_id obrigatório"}, status=400)
+
     from apps.accounts.models import User
+    # Segurança: valida que o usuário pertence ao mesmo office via memberships
     try:
-        user = User.objects.get(id=user_id)
-        event.assigned_to = user
-        event.assigned_at = timezone.now()
-        event.status = 'assigned'
-        event.save()
-        
-        return JsonResponse({"ok": True})
+        user = User.objects.filter(
+            id=user_id,
+            memberships__office=request.office,
+            memberships__is_active=True,
+        ).distinct().get()
     except User.DoesNotExist:
-        return JsonResponse({"error": "Usuário não encontrado"}, status=404)
+        return JsonResponse({"error": "Usuário não encontrado neste escritório"}, status=404)
+
+    event.assigned_to = user
+    event.assigned_at = timezone.now()
+    event.status = 'assigned'
+    event.save(update_fields=['assigned_to', 'assigned_at', 'status'])
+
+    return JsonResponse({"ok": True})
 
 
 @login_required

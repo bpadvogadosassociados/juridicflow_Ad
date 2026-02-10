@@ -21,13 +21,30 @@ class CNJMatcher:
         return list(set(matches))  # Remove duplicados
     
     @classmethod
-    def find_process(cls, cnj_number, office):
-        """Busca processo pelo número CNJ"""
+    def find_process(cls, cnj_number, office, organization=None):
+        """
+        Busca processo pelo número CNJ dentro do tenant correto.
+        Inclui filtro por organization além de office para evitar
+        cross-tenant lookup. Respeita soft-delete se o model suportar.
+        """
         from apps.processes.models import Process
         try:
-            return Process.objects.get(number=cnj_number, office=office)
+            qs = Process.objects.filter(number=cnj_number, office=office)
+            if organization is not None:
+                qs = qs.filter(organization=organization)
+            # Respeita soft-delete caso o model herde SoftDeleteModel
+            if hasattr(Process, 'is_deleted'):
+                qs = qs.filter(is_deleted=False)
+            return qs.get()
         except Process.DoesNotExist:
             return None
+        except Process.MultipleObjectsReturned:
+            # Não deve acontecer (unique_together), mas registra e retorna o primeiro
+            import logging
+            logging.getLogger(__name__).warning(
+                "Múltiplos processos com CNJ %s no office %s", cnj_number, office
+            )
+            return qs.first()
 
 
 class DeadlineBuilder:
@@ -171,35 +188,42 @@ class TextParser:
     @staticmethod
     def matches_filters(raw_text, filters):
         """
-        Verifica se texto bate com algum filtro
+        Verifica se texto bate com algum filtro.
         Matching primário: CNJ
-        Matching secundário: OAB, CNPJ, CPF
+        Matching secundário: OAB, CNPJ, CPF (ignora formatação)
         Terciário: Keywords (auxiliar)
+
+        `filters` pode ser QuerySet ou lista de PublicationFilter.
+        case_sensitive é avaliado por filtro, individualmente.
         """
-        text = raw_text if filters.filter(case_sensitive=True).exists() else raw_text.lower()
-        
+        # Extrai CNJs uma única vez para reuso
+        cnjs_no_text = CNJMatcher.extract_cnj(raw_text)
+        # Versão lowercased do texto para comparações insensíveis
+        raw_text_lower = raw_text.lower()
+        # Versão sem pontuação para documentos (OAB/CPF/CNPJ)
+        raw_text_digits = re.sub(r'\D', '', raw_text)
+
         for f in filters:
+            # Decide se compara com o texto original ou lowercased
+            text_to_search = raw_text if f.case_sensitive else raw_text_lower
             value = f.value if f.case_sensitive else f.value.lower()
-            
+
             if f.filter_type == 'cnj':
-                # Match exato de CNJ
-                cnjs = CNJMatcher.extract_cnj(raw_text)
-                if value in cnjs:
+                # Match exato: CNJ detectado deve estar na lista
+                if f.value in cnjs_no_text:
                     return True, f
-            
-            elif f.filter_type in ['oab', 'cpf', 'cnpj']:
-                # Match de documento
-                # Remove formatação para comparação
-                clean_value = re.sub(r'\D', '', value)
-                clean_text = re.sub(r'\D', '', raw_text)
-                if clean_value in clean_text:
+
+            elif f.filter_type in ('oab', 'cpf', 'cnpj'):
+                # Remove formatação de ambos antes de comparar
+                clean_value = re.sub(r'\D', '', f.value)
+                if clean_value and clean_value in raw_text_digits:
                     return True, f
-            
+
             elif f.filter_type == 'keyword':
-                # Match de palavra-chave (auxiliar)
-                if value in text:
+                # Match simples de substring
+                if value in text_to_search:
                     return True, f
-        
+
         return False, None
 
 
@@ -209,50 +233,69 @@ class PublicationProcessor:
     @classmethod
     def process(cls, publication, auto_create_event=True):
         """
-        Processa uma publicação recém-importada:
-        1. Extrai metadados
-        2. Detecta processo
-        3. Cria evento jurídico (se auto)
-        4. Cria prazo (se regra permitir)
+        Processa uma publicação recém-importada.
+
+        Ordem correta:
+        1. Extrai metadados do texto
+        2. Detecta e persiste CNJ na publication
+        3. Detecta processo vinculado
+        4. Resolve responsável ANTES de criar deadline
+        5. Cria JudicialEvent já com assigned_to preenchido
+        6. Cria Deadline com responsible já conhecido
+        7. Recalcula urgência com base no prazo obtido
         """
         from apps.publications.models import JudicialEvent
-        
-        # Extrai metadados
+
+        # 1. Extrai metadados
         metadata = TextParser.extract_metadata(publication.raw_text)
         publication.metadata = metadata
         publication.save()
-        
-        # Detecta e vincula processo
+
+        # 2. Detecta e persiste CNJ
         process = None
         if metadata.get('main_cnj'):
             publication.process_cnj = metadata['main_cnj']
             publication.save()
-            
-            process = CNJMatcher.find_process(metadata['main_cnj'], publication.office)
-        
-        # Cria evento jurídico (se configurado)
+            # 3. Busca processo
+            process = CNJMatcher.find_process(
+                metadata['main_cnj'],
+                publication.office,
+                publication.organization,
+            )
+
         if not auto_create_event:
             return None
-        
+
+        # 4. Resolve responsável ANTES de criar qualquer objeto de deadline
+        responsible = None
+        assigned_at = None
+        if process and hasattr(process, 'responsible') and process.responsible_id:
+            responsible = process.responsible
+            assigned_at = timezone.now()
+
+        # 5. Cria JudicialEvent já com responsável
         event = JudicialEvent.objects.create(
             organization=publication.organization,
             office=publication.office,
             publication=publication,
             event_type=metadata.get('suggested_type', 'other'),
             process=process,
+            assigned_to=responsible,
+            assigned_at=assigned_at,
+            status='assigned' if responsible else 'new',
         )
-        
-        # Calcula urgência se houver prazo
+
+        # 6. Cria Deadline (agora sabe o responsável)
         deadline = DeadlineBuilder.build_from_event(event)
         if deadline:
+            # Garante que deadline também tem o responsável
+            if responsible and not deadline.responsible_id:
+                deadline.responsible = responsible
+                deadline.save(update_fields=['responsible'])
+
+            # 7. Recalcula urgência com base no prazo real
             event.deadline = deadline
             event.urgency = UrgencyCalculator.calculate(deadline.due_date)
-            event.save()
-        
-        # Atribui responsável (se processo tiver)
-        if process and hasattr(process, 'responsible'):
-            event.assigned_to = process.responsible
-            event.assigned_at = timezone.now()
-            event.save()
-        
+            event.save(update_fields=['deadline', 'urgency'])
+
         return event

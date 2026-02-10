@@ -34,7 +34,7 @@
                 <small class="text-muted">
                   Criada em {{ folder.created_at|date:"d/m/Y" }}
                   {% if folder.created_by %}
-                    por {{ folder.created_by.get_full_name|default:folder.created_by.email }}
+                    por {% if folder.created_by.get_full_name %}{{ folder.created_by.get_full_name }}{% else %}{{ folder.created_by.email }}{% endif %}
                   {% endif %}
                 </small>
               </div>

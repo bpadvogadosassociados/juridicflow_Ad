@@ -17,7 +17,7 @@
         <dl class="row">
           <dt class="col-sm-3">Fonte:</dt><dd class="col-sm-9">{{ publication.get_source_display }}</dd>
           <dt class="col-sm-3">Data Publicação:</dt><dd class="col-sm-9">{{ publication.publication_date|date:"d/m/Y" }}</dd>
-          <dt class="col-sm-3">Importado em:</dt><dd class="col-sm-9">{{ publication.import_date|date:"d/m/Y H:i" }} por {{ publication.imported_by.email }}</dd>
+          <dt class="col-sm-3">Importado em:</dt><dd class="col-sm-9">{{ publication.created_at|date:"d/m/Y H:i" }} por {{ publication.imported_by.email|default:"—" }}</dd>
           <dt class="col-sm-3">CNJ Detectado:</dt><dd class="col-sm-9">{% if publication.process_cnj %}<strong>{{ publication.process_cnj }}</strong>{% else %}<span class="text-muted">Não detectado</span>{% endif %}</dd>
         </dl>
         

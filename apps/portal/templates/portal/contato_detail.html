@@ -59,7 +59,7 @@
           <dt>Processos</dt><dd>{{ process_parties.count }}</dd>
           <dt>Contratos</dt><dd>{{ agreements.count }}</dd>
           <dt>Cadastrado em</dt><dd>{{ customer.created_at|date:"d/m/Y" }}</dd>
-          {% if customer.responsible %}<dt>Responsável</dt><dd>{{ customer.responsible.get_full_name|default:customer.responsible.email }}</dd>{% endif %}
+          {% if customer.responsible %}<dt>Responsável</dt><dd>{% if customer.responsible.get_full_name %}{{ customer.responsible.get_full_name }}{% else %}{{ customer.responsible.email }}{% endif %}</dd>{% endif %}
         </dl>
       </div>
     </div>

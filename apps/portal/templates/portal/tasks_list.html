@@ -1,0 +1,451 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Tarefas | JuridicFlow{% endblock %}
+{% block page_title %}Tarefas{% endblock %}
+{% block breadcrumb %}Tarefas{% endblock %}
+{% block content %}
+
+<!-- Ações rápidas -->
+<div class="row mb-3">
+  <div class="col-md-12 d-flex align-items-center">
+    <button class="btn btn-primary mr-2" onclick="TasksUI.openCreateModal();">
+      <i class="fas fa-plus"></i> Nova Tarefa
+    </button>
+    <a href="{% url 'tasks:kanban' %}" class="btn btn-secondary mr-2">
+      <i class="fas fa-columns"></i> Ver Kanban
+    </a>
+    <!-- Atalho: minhas tarefas -->
+    <a href="?assigned=me&status=" class="btn btn-outline-info mr-2
+      {% if assigned_f == 'me' %}active{% endif %}">
+      <i class="fas fa-user"></i> Minhas Tarefas
+    </a>
+    <!-- Atalho: atrasadas -->
+    <a href="?due=overdue" class="btn btn-outline-danger
+      {% if due_filter == 'overdue' %}active{% endif %}">
+      <i class="fas fa-exclamation-triangle"></i> Atrasadas
+    </a>
+  </div>
+</div>
+
+<!-- Filtros -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Filtros</h3>
+    <div class="card-tools">
+      <button type="button" class="btn btn-tool" data-card-widget="collapse"><i class="fas fa-minus"></i></button>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="form-inline flex-wrap">
+      <div class="form-group mr-2 mb-2">
+        <input type="text" name="search" class="form-control form-control-sm" placeholder="Buscar tarefa..." value="{{ search }}">
+      </div>
+      <div class="form-group mr-2 mb-2">
+        <select name="status" class="form-control form-control-sm">
+          <option value="">Todos os status</option>
+          {% for val, lbl in status_choices %}
+            <option value="{{ val }}" {% if status_f == val %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group mr-2 mb-2">
+        <select name="priority" class="form-control form-control-sm">
+          <option value="">Todas prioridades</option>
+          {% for val, lbl in priority_choices %}
+            <option value="{{ val }}" {% if priority_f == val %}selected{% endif %}>{{ lbl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group mr-2 mb-2">
+        <select name="assigned" class="form-control form-control-sm">
+          <option value="">Qualquer responsável</option>
+          <option value="me" {% if assigned_f == 'me' %}selected{% endif %}>Minhas tarefas</option>
+          <option value="unassigned" {% if assigned_f == 'unassigned' %}selected{% endif %}>Não atribuídas</option>
+          {% for m in members %}
+            <option value="{{ m.id }}" {% if assigned_f == m.id|stringformat:"s" %}selected{% endif %}>
+              {{ m.get_full_name|default:m.email }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group mr-2 mb-2">
+        <select name="due" class="form-control form-control-sm">
+          <option value="">Qualquer prazo</option>
+          <option value="overdue" {% if due_filter == 'overdue' %}selected{% endif %}>Atrasadas</option>
+          <option value="today"   {% if due_filter == 'today'   %}selected{% endif %}>Vence hoje</option>
+          <option value="week"    {% if due_filter == 'week'    %}selected{% endif %}>Próximos 7 dias</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm mr-2 mb-2"><i class="fas fa-search"></i> Filtrar</button>
+      <a href="{% url 'tasks:list' %}" class="btn btn-secondary btn-sm mb-2">Limpar</a>
+    </form>
+  </div>
+</div>
+
+<!-- Lista -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">{{ tasks.paginator.count }} tarefa{{ tasks.paginator.count|pluralize:"s" }}</h3>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th width="30"></th>
+          <th>Tarefa</th>
+          <th>Prioridade</th>
+          <th>Prazo</th>
+          <th>Responsável</th>
+          <th>Status</th>
+          <th width="100">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tasks %}
+        <tr class="{% if t.is_overdue and t.status != 'done' %}table-danger{% elif t.due_date == today and t.status != 'done' %}table-warning{% endif %}">
+
+          <!-- Ícone de prioridade -->
+          <td class="text-center">
+            {% if t.priority == 'urgent' %}
+              <i class="fas fa-exclamation-circle text-danger" title="Urgente"></i>
+            {% elif t.priority == 'high' %}
+              <i class="fas fa-exclamation-triangle text-warning" title="Alta"></i>
+            {% endif %}
+          </td>
+
+          <!-- Título + vínculo -->
+          <td>
+            <strong>{{ t.title }}</strong>
+            {% if t.related %}
+              <br><small class="text-muted">
+                <i class="fas fa-link"></i>
+                {% if t.content_type.model == 'process' %}
+                  <a href="{% url 'portal:processo_detail' t.object_id %}" target="_blank">{{ t.related_object }}</a>
+                {% else %}
+                  {{ t.related_object }}
+                {% endif %}
+              </small>
+            {% endif %}
+            {% if t.description %}
+              <br><small class="text-muted">{{ t.description|truncatewords:8 }}</small>
+            {% endif %}
+          </td>
+
+          <!-- Prioridade badge -->
+          <td>
+            <span class="badge badge-{% if t.priority == 'urgent' %}danger{% elif t.priority == 'high' %}warning{% elif t.priority == 'medium' %}info{% else %}secondary{% endif %}">
+              {{ t.get_priority_display }}
+            </span>
+          </td>
+
+          <!-- Prazo -->
+          <td>
+            {% if t.due_date %}
+              {{ t.due_date|date:"d/m/Y" }}
+              <br><small class="text-{% if t.is_overdue and t.status != 'done' %}danger{% else %}muted{% endif %}">
+                {% if t.is_overdue and t.status != 'done' %}
+                  {{ t.due_date|timesince }} atrás
+                {% else %}
+                  Em {{ t.due_date|timeuntil }}
+                {% endif %}
+              </small>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+
+          <!-- Responsável -->
+          <td>
+            {% if t.assigned_to %}
+              {% if t.assigned_to.get_full_name %}{{ t.assigned_to.get_full_name }}{% else %}{{ t.assigned_to.email }}{% endif %}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+
+          <!-- Status -->
+          <td>
+            <span class="badge badge-{{ t._badge }}">{{ t._label }}</span>
+          </td>
+
+          <!-- Ações -->
+          <td>
+            <button class="btn btn-xs btn-info" onclick="TasksUI.openEditModal({{ t.id }});" title="Editar">
+              <i class="fas fa-edit"></i>
+            </button>
+            {% if t.status != 'done' %}
+            <button class="btn btn-xs btn-success" onclick="TasksUI.markDone({{ t.id }});" title="Concluir">
+              <i class="fas fa-check"></i>
+            </button>
+            {% endif %}
+            <button class="btn btn-xs btn-danger" onclick="TasksUI.delete({{ t.id }}, '{{ t.title|escapejs }}');" title="Deletar">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="text-center text-muted p-4">
+            <i class="fas fa-tasks fa-2x mb-2"></i><br>
+            Nenhuma tarefa encontrada.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if tasks.has_other_pages %}
+  <div class="card-footer clearfix">
+    <ul class="pagination pagination-sm m-0 float-right">
+      {% if tasks.has_previous %}
+        <li class="page-item"><a class="page-link" href="?page={{ tasks.previous_page_number }}&search={{ search }}&status={{ status_f }}&priority={{ priority_f }}&assigned={{ assigned_f }}&due={{ due_filter }}">«</a></li>
+      {% endif %}
+      {% for num in tasks.paginator.page_range %}
+        {% if tasks.number == num %}
+          <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+        {% elif num > tasks.number|add:'-3' and num < tasks.number|add:'3' %}
+          <li class="page-item"><a class="page-link" href="?page={{ num }}&search={{ search }}&status={{ status_f }}&priority={{ priority_f }}&assigned={{ assigned_f }}&due={{ due_filter }}">{{ num }}</a></li>
+        {% endif %}
+      {% endfor %}
+      {% if tasks.has_next %}
+        <li class="page-item"><a class="page-link" href="?page={{ tasks.next_page_number }}&search={{ search }}&status={{ status_f }}&priority={{ priority_f }}&assigned={{ assigned_f }}&due={{ due_filter }}">»</a></li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Modal Criar/Editar Task -->
+<div class="modal fade" id="taskModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="taskModalTitle">Nova Tarefa</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="task-form" onsubmit="return TasksUI.save(event);">
+          <input type="hidden" id="task-id">
+
+          <div class="form-group">
+            <label>Título *</label>
+            <input type="text" class="form-control" id="task-title" required>
+          </div>
+
+          <div class="form-group">
+            <label>Descrição (Markdown)</label>
+            <textarea class="form-control" id="task-description" rows="4"></textarea>
+          </div>
+
+          <div class="row">
+            <div class="col-md-4">
+              <div class="form-group">
+                <label>Status</label>
+                <select class="form-control" id="task-status">
+                  {% for val, lbl in status_choices %}<option value="{{ val }}">{{ lbl }}</option>{% endfor %}
+                </select>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="form-group">
+                <label>Prioridade</label>
+                <select class="form-control" id="task-priority">
+                  {% for val, lbl in priority_choices %}<option value="{{ val }}">{{ lbl }}</option>{% endfor %}
+                </select>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="form-group">
+                <label>Data Limite</label>
+                <input type="date" class="form-control" id="task-due-date">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Responsável</label>
+            <select class="form-control" id="task-assigned">
+              <option value="">— Sem responsável —</option>
+              {% for m in members %}
+                <option value="{{ m.id }}">{{ m.get_full_name|default:m.email }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Vincular a</label>
+                <select class="form-control" id="task-related-type" onchange="TasksUI.onRelatedTypeChange();">
+                  <option value="">— Nenhum —</option>
+                  <option value="process">Processo</option>
+                  <option value="deadline">Prazo</option>
+                </select>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-group">
+                <label id="task-related-id-label">&nbsp;</label>
+                <input type="text" class="form-control" id="task-related-search" placeholder="Buscar..." style="display:none;">
+                <input type="hidden" id="task-related-id">
+                <div id="task-related-results" class="list-group mt-1" style="max-height:180px;overflow-y:auto;"></div>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var TasksUI = {
+  searchTimeout: null,
+
+  openCreateModal: function() {
+    document.getElementById('task-id').value = '';
+    document.getElementById('task-title').value = '';
+    document.getElementById('task-description').value = '';
+    document.getElementById('task-status').value = 'todo';
+    document.getElementById('task-priority').value = 'medium';
+    document.getElementById('task-due-date').value = '';
+    document.getElementById('task-assigned').value = '';
+    document.getElementById('task-related-type').value = '';
+    document.getElementById('task-related-id').value = '';
+    document.getElementById('task-related-search').value = '';
+    document.getElementById('task-related-search').style.display = 'none';
+    document.getElementById('task-related-results').innerHTML = '';
+    document.getElementById('taskModalTitle').textContent = 'Nova Tarefa';
+    $('#taskModal').modal('show');
+  },
+
+  openEditModal: function(taskId) {
+    fetch('/app/tarefas/api/' + taskId + '/detail/')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var t = data.task;
+        document.getElementById('task-id').value = t.id;
+        document.getElementById('task-title').value = t.title;
+        document.getElementById('task-description').value = t.description;
+        document.getElementById('task-status').value = t.status;
+        document.getElementById('task-priority').value = t.priority;
+        document.getElementById('task-due-date').value = t.due_date || '';
+        document.getElementById('task-assigned').value = t.assigned_to ? t.assigned_to.id : '';
+        if (t.related) {
+          document.getElementById('task-related-type').value = t.related.type;
+          document.getElementById('task-related-id').value = t.related.id;
+          document.getElementById('task-related-search').value = t.related.label;
+          document.getElementById('task-related-search').style.display = 'block';
+        } else {
+          document.getElementById('task-related-type').value = '';
+          document.getElementById('task-related-id').value = '';
+          document.getElementById('task-related-search').style.display = 'none';
+        }
+        document.getElementById('task-related-results').innerHTML = '';
+        document.getElementById('taskModalTitle').textContent = 'Editar Tarefa';
+        $('#taskModal').modal('show');
+      });
+  },
+
+  onRelatedTypeChange: function() {
+    var type = document.getElementById('task-related-type').value;
+    var searchEl = document.getElementById('task-related-search');
+    var labelEl  = document.getElementById('task-related-id-label');
+    searchEl.style.display = type ? 'block' : 'none';
+    labelEl.textContent = type === 'process' ? 'Buscar processo' : type === 'deadline' ? 'Buscar prazo' : '';
+    document.getElementById('task-related-id').value = '';
+    document.getElementById('task-related-search').value = '';
+    document.getElementById('task-related-results').innerHTML = '';
+  },
+
+  save: function(e) {
+    e.preventDefault();
+    var taskId = document.getElementById('task-id').value;
+    var payload = {
+      title:          document.getElementById('task-title').value,
+      description:    document.getElementById('task-description').value,
+      status:         document.getElementById('task-status').value,
+      priority:       document.getElementById('task-priority').value,
+      due_date:       document.getElementById('task-due-date').value || null,
+      assigned_to_id: document.getElementById('task-assigned').value || null,
+      related_type:   document.getElementById('task-related-type').value || null,
+      related_id:     document.getElementById('task-related-id').value || null
+    };
+    var url = taskId ? '/app/tarefas/api/' + taskId + '/update/' : '/app/tarefas/api/create/';
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+      body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) { $('#taskModal').modal('hide'); location.reload(); }
+      else { alert('Erro: ' + (d.error || 'Erro desconhecido')); }
+    });
+    return false;
+  },
+
+  markDone: function(taskId) {
+    fetch('/app/tarefas/api/' + taskId + '/update/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+      body: JSON.stringify({status: 'done'})
+    }).then(function() { location.reload(); });
+  },
+
+  delete: function(taskId, title) {
+    if (!confirm('Deletar tarefa "' + title + '"?')) return;
+    fetch('/app/tarefas/api/' + taskId + '/delete/', {
+      method: 'POST', headers: {'X-CSRFToken': getCsrf()}
+    }).then(function() { location.reload(); });
+  }
+};
+
+// Busca ao digitar no campo relacionado
+document.addEventListener('DOMContentLoaded', function() {
+  var searchInput = document.getElementById('task-related-search');
+  if (!searchInput) return;
+  searchInput.addEventListener('input', function() {
+    clearTimeout(TasksUI.searchTimeout);
+    var q = this.value.trim();
+    if (q.length < 2) { document.getElementById('task-related-results').innerHTML = ''; return; }
+    TasksUI.searchTimeout = setTimeout(function() {
+      fetch('/app/api/search/?q=' + encodeURIComponent(q))
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          var type = document.getElementById('task-related-type').value;
+          var results = data.results.filter(function(r) { return r.type === type || (type === 'process' && r.type === 'processo'); });
+          var container = document.getElementById('task-related-results');
+          if (!results.length) { container.innerHTML = '<div class="list-group-item text-muted">Nenhum resultado.</div>'; return; }
+          container.innerHTML = results.map(function(r) {
+            var id = (r.url.match(/\/(\d+)\/?$/) || [])[1] || '';
+            return '<a href="#" class="list-group-item list-group-item-action py-1" onclick="TasksUI.selectRelated(\'' + id + '\',\'' + r.label.replace(/'/g,'') + '\'); return false;">'
+              + '<i class="' + r.icon + ' mr-1"></i>' + r.label + '</a>';
+          }).join('');
+        });
+    }, 280);
+  });
+});
+
+TasksUI.selectRelated = function(id, label) {
+  document.getElementById('task-related-id').value = id;
+  document.getElementById('task-related-search').value = label;
+  document.getElementById('task-related-results').innerHTML = '';
+};
+
+function getCsrf() {
+  var c = document.cookie.split(';');
+  for (var i = 0; i < c.length; i++) {
+    var kv = c[i].trim().split('=');
+    if (kv[0] === 'csrftoken') return decodeURIComponent(kv[1]);
+  }
+  return '';
+}
+</script>
+{% endblock %}
