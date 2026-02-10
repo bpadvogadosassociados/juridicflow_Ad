@@ -2,11 +2,12 @@ from functools import wraps
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import render, redirect
+from django.views.decorators.csrf import csrf_exempt
 
 
 def require_portal_access(check_office=True):
     """
-    Decorator para views do portal.
+    Decorator para views do portal (HTML).
     
     - Exige autenticação
     - Bloqueia staff/superuser
@@ -65,6 +66,8 @@ def require_portal_json(check_office=True):
     """
     Decorator para endpoints JSON do portal.
     Retorna JsonResponse em vez de HTML em caso de erro.
+    Aplica csrf_exempt pois esses endpoints recebem JSON body
+    e o CSRF é validado via header X-CSRFToken pelo middleware.
     
     Uso:
         @require_portal_json()

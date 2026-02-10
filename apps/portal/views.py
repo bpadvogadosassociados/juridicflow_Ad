@@ -12,6 +12,7 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 from decimal import Decimal
+from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.documents.models import Document, DocumentVersion, DocumentShare, DocumentComment, Folder, DocumentFolder
 from apps.portal.forms import PortalLoginForm, SupportTicketForm
 from apps.portal.models import (

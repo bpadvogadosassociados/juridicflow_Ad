@@ -72,11 +72,12 @@ class ScopedModelViewSet(viewsets.ModelViewSet):
         return qs.none()
 
     def perform_create(self, serializer):
+        from rest_framework.exceptions import ValidationError
         org = self.request.organization
         office = self.request.office
         m = self.request.membership
         if not office and not (m.role == "org_admin" and m.office_id is None):
-            raise ValueError("Office não selecionado. Envie header X-Office-Id.")
+            raise ValidationError({"detail": "Office não selecionado. Envie header X-Office-Id."})
         serializer.save(organization=org, office=office)
 
 class CustomerViewSet(ScopedModelViewSet):
@@ -96,11 +97,12 @@ class DocumentViewSet(ScopedModelViewSet):
     serializer_class = DocumentSerializer
 
     def perform_create(self, serializer):
+        from rest_framework.exceptions import ValidationError
         org = self.request.organization
         office = self.request.office
         m = self.request.membership
         if not office and not (m.role == "org_admin" and m.office_id is None):
-            raise ValueError("Office não selecionado. Envie header X-Office-Id.")
+            raise ValidationError({"detail": "Office não selecionado. Envie header X-Office-Id."})
         serializer.save(organization=org, office=office, uploaded_by=self.request.user)
 
 class FeeAgreementViewSet(ScopedModelViewSet):
