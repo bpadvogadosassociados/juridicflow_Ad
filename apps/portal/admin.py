@@ -22,3 +22,4 @@ admin.site.register(KanbanCard)
 admin.site.register(ChatThread)
 admin.site.register(ChatMember)
 admin.site.register(ChatMessage)
+

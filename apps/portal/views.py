@@ -750,13 +750,96 @@ def agenda(request):
     templates = CalendarEventTemplate.objects.filter(office=request.office, is_active=True).order_by("title")
     return render(request, "portal/agenda.html", {"templates": templates, "active_page":"agenda"})
 
+#Tarefas e Kanban
+
 @login_required
 def kanban(request):
     forbid = _ensure_portal_user(request)
     if forbid: return forbid
     must = _ensure_office(request)
     if must: return must
-    return render(request, "portal/kanban.html", {"active_page":"kanban"})
+    return render(request, "portal/tasks_kanban.html", {"active_page":"kanban"})
+
+@login_required
+def task_list(request):
+    """
+    Lista de Tarefas — view principal (usa KanbanCards como backend por ora).
+    """
+    forbid = _ensure_portal_user(request)
+    if forbid:
+        return forbid
+    must = _ensure_office(request)
+    if must:
+        return must
+
+    from django.core.paginator import Paginator
+    from django.db import models as django_models
+
+    search   = request.GET.get("search", "").strip()
+    status_f = request.GET.get("status", "")
+
+    board, _ = KanbanBoard.objects.get_or_create(
+        organization=request.organization,
+        office=request.office,
+    )
+
+    cards_qs = KanbanCard.objects.filter(board=board).select_related("column")
+
+    if search:
+        cards_qs = cards_qs.filter(
+            django_models.Q(title__icontains=search) |
+            django_models.Q(body_md__icontains=search)
+        )
+
+    STATUS_MAP = {
+        "backlog":      "todo",
+        "to do":        "todo",
+        "a fazer":      "todo",
+        "in progress":  "doing",
+        "em andamento": "doing",
+        "fazendo":      "doing",
+        "done":         "done",
+        "concluído":    "done",
+        "finalizado":   "done",
+        "blocked":      "blocked",
+        "bloqueado":    "blocked",
+    }
+
+    card_list = []
+    for c in cards_qs.order_by("column__order", "order"):
+        col_key    = c.column.title.lower().strip()
+        c._status      = STATUS_MAP.get(col_key, "todo")
+        c._column_name = c.column.title
+        if status_f and c._status != status_f:
+            continue
+        card_list.append(c)
+
+    paginator = Paginator(card_list, settings.PORTAL_PAGINATION_SIZE)
+    page      = request.GET.get("page", 1)
+    tasks     = paginator.get_page(page)
+
+    STATUS_CHOICES = [
+        ("todo",    "A fazer"),
+        ("doing",   "Em andamento"),
+        ("blocked", "Bloqueada"),
+        ("done",    "Concluída"),
+    ]
+
+    return render(request, "portal/tasks_list.html", {
+        "tasks":          tasks,
+        "search":         search,
+        "status_f":       status_f,
+        "priority_f":     "",
+        "assigned_f":     "",
+        "due_filter":     "",
+        "status_choices": STATUS_CHOICES,
+        "priority_choices": [],
+        "members":        [],
+        "active_page":    "tarefas",   # ← "tarefas", não "kanban"
+        "today":          __import__("django.utils.timezone", fromlist=["timezone"]).timezone.now().date(),
+    })
+
+# Fim Tarefas e Kanban
 
 @login_required
 @require_http_methods(["GET", "POST"])
