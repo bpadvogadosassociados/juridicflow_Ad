@@ -18,7 +18,7 @@ def dashboard(request):
     latest_processes = Process.objects.filter(
         organization=request.organization,
         office=office,
-    ).select_related("responsible").order_by("-created_at")[:5]
+    ).order_by("-created_at")[:5]
 
     return render(request, "portal/dashboard.html", {
         "counts": counts,

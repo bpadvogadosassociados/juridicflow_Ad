@@ -1,18 +1,36 @@
 """
 Views de Documentos — upload, versionamento, compartilhamento, pastas.
+CORRIGIDO para campos reais dos models.
+
+Campos reais:
+  Document: title, description, category, status, file, file_size, file_extension,
+            tags, process, customer, uploaded_by, is_confidential, is_template,
+            document_date, expiry_date
+            (SEM: original_filename, mime_type, folder FK)
+  DocumentVersion: document, version_number, file, file_size,
+                   changes_description (não change_summary), created_by, created_at
+                   (SEM: organization, office, original_filename, mime_type, uploaded_by)
+  DocumentShare: document, shared_with, shared_by, can_edit, can_download,
+                 expires_at, access_count, last_accessed_at
+                 (SEM: permission field — usa can_edit/can_download)
+  DocumentComment: document, author, comment (não text), created_at
+  Folder: name, description, parent, color, icon, created_by
+  DocumentFolder: document, folder, added_at, added_by (M2M join table)
 """
-import mimetypes
+import os
 
 from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
-from django.db.models import Sum, Count, Q, F
+from django.db.models import Sum, Count, Q
 from django.http import FileResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
-from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
-from apps.documents.models import Document, DocumentVersion, DocumentShare, DocumentComment, Folder
+from apps.documents.models import (
+    Document, DocumentVersion, DocumentShare, DocumentComment,
+    Folder, DocumentFolder,
+)
 from apps.customers.models import Customer
 from apps.processes.models import Process
 from apps.portal.decorators import require_portal_access, require_portal_json
@@ -22,8 +40,8 @@ from apps.portal.views._helpers import parse_json_body, log_activity
 from apps.portal.permissions import require_role, require_action
 from apps.portal.audit import audited
 
+
 def _collect_doc_tags(qs, limit=10):
-    """Conta tags de documentos sem carregar objetos inteiros."""
     counts: dict[str, int] = {}
     for tags_str in qs.exclude(tags="").values_list("tags", flat=True):
         for tag in (t.strip() for t in tags_str.split(",") if t.strip()):
@@ -42,7 +60,6 @@ def documentos_dashboard(request):
     by_category = list(base_qs.values("category").annotate(count=Count("id")).order_by("-count"))
     by_status = list(base_qs.values("status").annotate(count=Count("id")))
 
-    # Phase 1 fix: aggregate em vez de sum() em Python
     total_size = base_qs.aggregate(total=Sum("file_size"))["total"] or 0
     total_size_mb = round(total_size / (1024 * 1024), 2)
 
@@ -66,6 +83,7 @@ def documentos_dashboard(request):
 def documentos(request):
     search = request.GET.get("search", "")
     category = request.GET.get("category", "")
+    status_filter = request.GET.get("status", "")
     tag_filter = request.GET.get("tag", "")
     folder_id = request.GET.get("folder", "")
 
@@ -80,10 +98,12 @@ def documentos(request):
         )
     if category:
         qs = qs.filter(category=category)
+    if status_filter:
+        qs = qs.filter(status=status_filter)
     if tag_filter:
         qs = qs.filter(tags__icontains=tag_filter)
     if folder_id:
-        qs = qs.filter(folder_id=folder_id)
+        qs = qs.filter(folder_links__folder_id=folder_id)
 
     qs = qs.order_by("-created_at")
 
@@ -96,16 +116,21 @@ def documentos(request):
     ).exclude(tags="").values_list("tags", flat=True):
         all_tags.update(t.strip() for t in tags_str.split(",") if t.strip())
 
-    folders = Folder.objects.filter(office=request.office).order_by("name")
+    folders = Folder.objects.filter(
+        office=request.office, parent__isnull=True
+    ).order_by("name")
 
     return render(request, "portal/documentos.html", {
         "documents": documents_page,
         "search": search,
         "category": category,
+        "status_filter": status_filter,
         "tag_filter": tag_filter,
         "folder_id": folder_id,
         "all_tags": sorted(all_tags),
         "folders": folders,
+        "category_choices": Document.CATEGORY_CHOICES,
+        "status_choices": Document.STATUS_CHOICES,
         "active_page": "documentos",
     })
 
@@ -123,17 +148,6 @@ def documento_upload(request):
             doc.organization = request.organization
             doc.office = request.office
             doc.uploaded_by = request.user
-
-            # Metadados do arquivo
-            uploaded_file = request.FILES.get("file")
-            if uploaded_file:
-                doc.original_filename = uploaded_file.name
-                doc.file_size = uploaded_file.size
-                doc.mime_type = (
-                    uploaded_file.content_type
-                    or mimetypes.guess_type(uploaded_file.name)[0]
-                    or "application/octet-stream"
-                )
 
             # Links opcionais
             process_id = form.cleaned_data.get("process_id")
@@ -156,16 +170,23 @@ def documento_upload(request):
                 except Customer.DoesNotExist:
                     pass
 
-            if folder_id:
-                try:
-                    doc.folder = Folder.objects.get(
-                        id=folder_id, organization=request.organization, office=request.office
-                    )
-                except Folder.DoesNotExist:
-                    pass
-
             try:
-                doc.save()
+                doc.save()  # save() auto-calcula file_size e file_extension
+
+                # Vincula a pasta via M2M (DocumentFolder)
+                if folder_id:
+                    try:
+                        folder = Folder.objects.get(
+                            id=folder_id, office=request.office
+                        )
+                        DocumentFolder.objects.create(
+                            document=doc,
+                            folder=folder,
+                            added_by=request.user,
+                        )
+                    except Folder.DoesNotExist:
+                        pass
+
                 log_activity(request, "document_upload", f"Documento: {doc.title}")
                 messages.success(request, f"Documento '{doc.title}' enviado com sucesso!")
                 return redirect("portal:documento_detail", doc.id)
@@ -191,6 +212,8 @@ def documento_upload(request):
         "processes": processes,
         "customers": customers,
         "folders": folders,
+        "category_choices": Document.CATEGORY_CHOICES,
+        "status_choices": Document.STATUS_CHOICES,
         "active_page": "documentos",
     })
 
@@ -200,20 +223,22 @@ def documento_upload(request):
 @require_portal_access()
 def documento_detail(request, document_id):
     doc = get_object_or_404(
-        Document.objects.select_related("uploaded_by", "process", "customer", "folder"),
+        Document.objects.select_related("uploaded_by", "process", "customer"),
         id=document_id,
         organization=request.organization,
         office=request.office,
     )
-    versions = doc.versions.select_related("uploaded_by").order_by("-version_number")
-    shares = doc.shares.select_related("shared_with").order_by("-created_at")
+    versions = doc.versions.select_related("created_by").order_by("-version_number")
+    shares = doc.shares.select_related("shared_with", "shared_by").order_by("-created_at")
     comments = doc.comments.select_related("author").order_by("-created_at")
+    folders = doc.folder_links.select_related("folder").all()
 
     return render(request, "portal/documento_detail.html", {
         "document": doc,
         "versions": versions,
         "shares": shares,
         "comments": comments,
+        "folders": folders,
         "active_page": "documentos",
     })
 
@@ -230,9 +255,9 @@ def documento_download(request, document_id):
         messages.error(request, "Arquivo não encontrado.")
         return redirect("portal:documento_detail", doc.id)
 
-    response = FileResponse(doc.file.open("rb"), content_type=doc.mime_type or "application/octet-stream")
-    filename = doc.original_filename or doc.title
-    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    filename = doc.filename or doc.title
+    response = FileResponse(doc.file.open("rb"), as_attachment=True, filename=filename)
+    log_activity(request, "document_download", f"Download: {doc.title}")
     return response
 
 
@@ -248,12 +273,8 @@ def documento_version_download(request, version_id):
         messages.error(request, "Arquivo não encontrado.")
         return redirect("portal:documento_detail", version.document_id)
 
-    response = FileResponse(
-        version.file.open("rb"),
-        content_type=version.mime_type or "application/octet-stream",
-    )
-    filename = version.original_filename or f"v{version.version_number}_{version.document.title}"
-    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    filename = os.path.basename(version.file.name) if version.file else f"v{version.version_number}"
+    response = FileResponse(version.file.open("rb"), as_attachment=True, filename=filename)
     return response
 
 
@@ -271,6 +292,8 @@ def documento_delete(request, document_id):
         office=request.office,
     )
     title = doc.title
+    if doc.file:
+        doc.file.delete(save=False)
     doc.delete()
     log_activity(request, "document_delete", f"Documento deletado: {title}")
     return JsonResponse({"ok": True})
@@ -292,28 +315,21 @@ def documento_version_create(request, document_id):
     if not uploaded_file:
         return JsonResponse({"error": "Arquivo obrigatório"}, status=400)
 
-    # Usa F() para evitar race condition no version_number
     from django.db.models import Max
     max_version = doc.versions.aggregate(max_v=Max("version_number"))["max_v"] or 0
     next_version = max_version + 1
 
     version = DocumentVersion.objects.create(
         document=doc,
-        organization=request.organization,
-        office=request.office,
-        file=uploaded_file,
         version_number=next_version,
-        original_filename=uploaded_file.name,
-        file_size=uploaded_file.size,
-        mime_type=uploaded_file.content_type or "application/octet-stream",
-        uploaded_by=request.user,
-        change_summary=request.POST.get("change_summary", "").strip(),
+        file=uploaded_file,
+        changes_description=request.POST.get("changes_description", "").strip(),
+        created_by=request.user,
     )
 
     # Atualiza o documento principal com o novo arquivo
     doc.file = uploaded_file
-    doc.file_size = uploaded_file.size
-    doc.save(update_fields=["file", "file_size", "updated_at"])
+    doc.save()  # save() recalcula file_size e file_extension
 
     log_activity(request, "document_version", f"Nova versão v{next_version} de '{doc.title}'")
     return JsonResponse({
@@ -321,7 +337,7 @@ def documento_version_create(request, document_id):
         "version": {
             "id": version.id,
             "version_number": version.version_number,
-            "filename": version.original_filename,
+            "created_at": version.created_at.strftime("%d/%m/%Y %H:%M"),
         },
     })
 
@@ -352,15 +368,21 @@ def documento_share_create(request, document_id):
         return JsonResponse({"error": "Usuário não encontrado"}, status=404)
 
     share, created = DocumentShare.objects.get_or_create(
+        organization=request.organization,
+        office=request.office,
         document=doc,
         shared_with=target_user,
         defaults={
-            "organization": request.organization,
-            "office": request.office,
             "shared_by": request.user,
-            "permission": payload.get("permission", "view"),
+            "can_edit": payload.get("can_edit", False),
+            "can_download": payload.get("can_download", True),
         },
     )
+    if not created:
+        share.can_edit = payload.get("can_edit", share.can_edit)
+        share.can_download = payload.get("can_download", share.can_download)
+        share.save(update_fields=["can_edit", "can_download"])
+
     return JsonResponse({"ok": True, "created": created, "share_id": share.id})
 
 
@@ -371,8 +393,8 @@ def documento_share_delete(request, share_id):
     share = get_object_or_404(
         DocumentShare,
         id=share_id,
-        organization=request.organization,
-        office=request.office,
+        document__organization=request.organization,
+        document__office=request.office,
     )
     share.delete()
     return JsonResponse({"ok": True})
@@ -391,24 +413,24 @@ def documento_comment_create(request, document_id):
         office=request.office,
     )
     payload = parse_json_body(request)
-    text = payload.get("text", "").strip()
-    if not text:
-        return JsonResponse({"error": "Texto obrigatório"}, status=400)
+    comment_text = payload.get("comment", "").strip()
+    if not comment_text:
+        return JsonResponse({"error": "Comentário obrigatório"}, status=400)
 
     comment = DocumentComment.objects.create(
-        document=doc,
         organization=request.organization,
         office=request.office,
+        document=doc,
         author=request.user,
-        text=text,
+        comment=comment_text,
     )
     return JsonResponse({
         "ok": True,
         "comment": {
             "id": comment.id,
-            "text": comment.text,
+            "comment": comment.comment,
             "author": comment.author.get_full_name() or comment.author.email,
-            "created_at": comment.created_at.isoformat(),
+            "created_at": comment.created_at.strftime("%d/%m/%Y %H:%M"),
         },
     })
 
@@ -420,7 +442,8 @@ def pastas(request):
     folders = Folder.objects.filter(
         organization=request.organization,
         office=request.office,
-    ).annotate(doc_count=Count("documents")).order_by("name")
+        parent__isnull=True,
+    ).prefetch_related("subfolders").order_by("name")
 
     return render(request, "portal/pastas.html", {
         "folders": folders,
@@ -437,16 +460,26 @@ def pasta_create(request):
     if not name:
         return JsonResponse({"error": "Nome obrigatório"}, status=400)
 
+    parent_id = payload.get("parent_id")
+    parent = None
+    if parent_id:
+        try:
+            parent = Folder.objects.get(id=parent_id, office=request.office)
+        except Folder.DoesNotExist:
+            pass
+
     folder = Folder.objects.create(
         organization=request.organization,
         office=request.office,
         name=name,
         description=payload.get("description", "").strip(),
-        color=payload.get("color", ""),
+        parent=parent,
+        color=payload.get("color", "#007bff"),
+        created_by=request.user,
     )
     return JsonResponse({
         "ok": True,
-        "folder": {"id": folder.id, "name": folder.name},
+        "folder": {"id": folder.id, "name": folder.name, "full_path": folder.full_path},
     })
 
 
@@ -460,9 +493,10 @@ def pasta_delete(request, folder_id):
         organization=request.organization,
         office=request.office,
     )
+    if folder.documents.exists() or folder.subfolders.exists():
+        return JsonResponse({"error": "Pasta não está vazia"}, status=400)
+
     name = folder.name
-    # Desvincula documentos (não deleta)
-    folder.documents.update(folder=None)
     folder.delete()
     log_activity(request, "folder_delete", f"Pasta deletada: {name}")
     return JsonResponse({"ok": True})

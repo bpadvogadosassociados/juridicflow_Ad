@@ -1,6 +1,9 @@
 """
 Views de Prazos (Deadlines).
+CORRIGIDO: Removido created_by (não existe no model Deadline).
 """
+from datetime import timedelta
+
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
@@ -19,6 +22,7 @@ from apps.portal.views._helpers import parse_json_body, log_activity
 from apps.portal.permissions import require_role, require_action
 from apps.portal.audit import audited
 
+
 # ==================== LISTA ====================
 
 @require_portal_access()
@@ -30,7 +34,7 @@ def prazos(request):
     qs = Deadline.objects.filter(
         organization=request.organization,
         office=request.office,
-    ).select_related("content_type").order_by("due_date")
+    ).select_related("responsible").order_by("due_date")
 
     if search:
         qs = qs.filter(
@@ -52,7 +56,7 @@ def prazos(request):
         office=request.office,
         status="pending",
         due_date__gte=today,
-        due_date__lte=today + timezone.timedelta(days=7),
+        due_date__lte=today + timedelta(days=7),
     ).count()
 
     return render(request, "portal/prazos.html", {
@@ -62,6 +66,8 @@ def prazos(request):
         "priority": priority,
         "overdue_count": overdue_count,
         "upcoming_count": upcoming_count,
+        "type_choices": Deadline.TYPE_CHOICES,
+        "priority_choices": Deadline.PRIORITY_CHOICES,
         "active_page": "prazos",
     })
 
@@ -90,7 +96,7 @@ def prazos_calendar_json(request):
         qs = qs.filter(due_date__lte=parse_date(end[:10]))
 
     priority_colors = {
-        "critical": "#dc3545",
+        "urgent": "#dc3545",
         "high": "#fd7e14",
         "medium": "#ffc107",
         "low": "#28a745",
@@ -104,7 +110,7 @@ def prazos_calendar_json(request):
             "start": d.due_date.isoformat() if d.due_date else None,
             "color": priority_colors.get(d.priority, "#6c757d"),
             "extendedProps": {
-                "status": d.status,
+                "status": d.status if hasattr(d, "status") else "",
                 "priority": d.priority,
             },
         })
@@ -142,17 +148,28 @@ def prazo_create(request):
         except Process.DoesNotExist:
             return JsonResponse({"error": "Processo não encontrado"}, status=404)
 
+    # Responsável
+    responsible = None
+    responsible_id = payload.get("responsible_id")
+    if responsible_id:
+        from apps.accounts.models import User
+        try:
+            responsible = User.objects.get(id=responsible_id)
+        except User.DoesNotExist:
+            pass
+
     deadline = Deadline.objects.create(
         organization=request.organization,
         office=request.office,
         title=title,
         description=payload.get("description", "").strip(),
         due_date=due_date,
+        type=payload.get("type", "legal"),
         priority=payload.get("priority", "medium"),
         status="pending",
         content_type=content_type,
         object_id=object_id,
-        created_by=request.user,
+        responsible=responsible,
     )
     log_activity(request, "deadline_create", f"Prazo criado: {deadline.title}")
 
@@ -171,10 +188,10 @@ def prazo_create(request):
 @require_portal_json()
 @require_role("lawyer")
 @require_http_methods(["POST"])
-def prazo_update(request, deadline_id):
+def prazo_update(request, prazo_id):
     deadline = get_object_or_404(
         Deadline,
-        id=deadline_id,
+        id=prazo_id,
         organization=request.organization,
         office=request.office,
     )
@@ -185,11 +202,39 @@ def prazo_update(request, deadline_id):
     if "description" in payload:
         deadline.description = payload["description"].strip()
     if "due_date" in payload:
-        deadline.due_date = parse_date(payload["due_date"])
+        deadline.due_date = parse_date(payload["due_date"]) or deadline.due_date
+    if "type" in payload:
+        deadline.type = payload["type"]
     if "priority" in payload:
         deadline.priority = payload["priority"]
     if "status" in payload:
         deadline.status = payload["status"]
+
+    # Atualiza vinculação com processo
+    if "process_id" in payload:
+        process_id = payload["process_id"]
+        if process_id:
+            try:
+                process = Process.objects.get(id=process_id, office=request.office)
+                deadline.content_type = ContentType.objects.get_for_model(Process)
+                deadline.object_id = process.id
+            except Process.DoesNotExist:
+                pass
+        else:
+            deadline.content_type = None
+            deadline.object_id = None
+
+    # Atualiza responsável
+    if "responsible_id" in payload:
+        responsible_id = payload["responsible_id"]
+        if responsible_id:
+            from apps.accounts.models import User
+            try:
+                deadline.responsible = User.objects.get(id=responsible_id)
+            except User.DoesNotExist:
+                pass
+        else:
+            deadline.responsible = None
 
     deadline.save()
     log_activity(request, "deadline_update", f"Prazo atualizado: {deadline.title}")
@@ -210,10 +255,10 @@ def prazo_update(request, deadline_id):
 @require_role("manager")
 @audited(action="delete", model_name="Deadline")
 @require_http_methods(["POST"])
-def prazo_delete(request, deadline_id):
+def prazo_delete(request, prazo_id):
     deadline = get_object_or_404(
         Deadline,
-        id=deadline_id,
+        id=prazo_id,
         organization=request.organization,
         office=request.office,
     )
@@ -224,19 +269,30 @@ def prazo_delete(request, deadline_id):
 
 
 @require_portal_json()
-def prazo_detail(request, deadline_id):
+def prazo_detail(request, prazo_id):
     deadline = get_object_or_404(
         Deadline,
-        id=deadline_id,
+        id=prazo_id,
         organization=request.organization,
         office=request.office,
     )
+
+    # Retorna process_id se vinculado
+    process_id = None
+    if deadline.content_type and deadline.object_id:
+        ct_process = ContentType.objects.get_for_model(Process)
+        if deadline.content_type == ct_process:
+            process_id = deadline.object_id
+
     return JsonResponse({
         "id": deadline.id,
         "title": deadline.title,
         "description": deadline.description,
         "due_date": deadline.due_date.isoformat() if deadline.due_date else None,
+        "type": deadline.type,
         "priority": deadline.priority,
-        "status": deadline.status,
+        "status": deadline.status if hasattr(deadline, "status") else "",
+        "responsible_id": deadline.responsible_id,
+        "process_id": process_id,
         "created_at": deadline.created_at.isoformat(),
     })

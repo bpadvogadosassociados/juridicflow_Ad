@@ -1,6 +1,19 @@
 """
 Views Financeiras — Contratos, Faturas, Despesas.
+CORRIGIDO para campos reais dos models.
+
+Campos reais:
+  FeeAgreement: customer, process, title, description, amount, billing_type,
+                installments, status, start_date, end_date, notes, responsible
+  Invoice: agreement (não fee_agreement!), number, issue_date, due_date,
+           amount, discount, status, description, notes, payment_method
+           (SEM: paid_date, paid_amount)
+  Payment: invoice, paid_at, amount, method, reference, notes, recorded_by
+  Expense: title (não description!), description, category, date, due_date,
+           amount, status, payment_method, supplier, reference, notes, responsible
 """
+from decimal import Decimal
+
 from django.conf import settings
 from django.contrib import messages
 from django.core.paginator import Paginator
@@ -12,13 +25,14 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_http_methods
 
 from apps.customers.models import Customer
-from apps.finance.models import FeeAgreement, Invoice, Expense
+from apps.finance.models import FeeAgreement, Invoice, Payment, Expense
 from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.forms import FeeAgreementForm
 from apps.portal.views._helpers import parse_json_body, log_activity
 
 from apps.portal.permissions import require_role, require_action
 from apps.portal.audit import audited
+
 
 # ==================== DASHBOARD ====================
 
@@ -29,38 +43,38 @@ def financeiro_dashboard(request):
     today = timezone.now().date()
     month_start = today.replace(day=1)
 
-    # Totais de contratos
     contracts_total = FeeAgreement.objects.filter(
         office=office
-    ).aggregate(total=Sum("amount"))["total"] or 0
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
 
     active_contracts = FeeAgreement.objects.filter(
         office=office, status="active"
     ).count()
 
-    # Receita do mês (faturas pagas)
-    monthly_revenue = Invoice.objects.filter(
-        office=office, status="paid", paid_date__gte=month_start
-    ).aggregate(total=Sum("amount"))["total"] or 0
+    # Receita do mês (pagamentos recebidos)
+    monthly_revenue = Payment.objects.filter(
+        invoice__office=office,
+        paid_at__gte=month_start,
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
 
     # Despesas do mês
     monthly_expenses = Expense.objects.filter(
         office=office, date__gte=month_start
-    ).aggregate(total=Sum("amount"))["total"] or 0
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
 
     # Faturas pendentes
     pending_invoices = Invoice.objects.filter(
         office=office, status__in=["issued", "sent"]
-    ).aggregate(total=Sum("amount"))["total"] or 0
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
 
     overdue_invoices = Invoice.objects.filter(
         office=office, status="overdue"
-    ).aggregate(total=Sum("amount"))["total"] or 0
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
 
     # Últimas transações
     recent_invoices = Invoice.objects.filter(
         office=office
-    ).select_related("fee_agreement__customer").order_by("-created_at")[:5]
+    ).select_related("agreement__customer").order_by("-created_at")[:5]
 
     recent_expenses = Expense.objects.filter(
         office=office
@@ -107,6 +121,8 @@ def financeiro_contratos(request):
         "contracts": contracts,
         "search": search,
         "status_filter": status_filter,
+        "status_choices": FeeAgreement.STATUS_CHOICES,
+        "billing_type_choices": FeeAgreement.BILLING_TYPE_CHOICES,
         "active_page": "financeiro",
     })
 
@@ -121,6 +137,7 @@ def financeiro_contrato_create(request):
             agreement = form.save(commit=False)
             agreement.organization = request.organization
             agreement.office = request.office
+            agreement.responsible = request.user
             try:
                 agreement.save()
                 log_activity(request, "contract_create", f"Contrato criado: {agreement.title}")
@@ -144,16 +161,20 @@ def financeiro_contrato_create(request):
 
 @require_portal_access()
 @require_role("lawyer")
-def financeiro_contrato_detail(request, contract_id):
+def financeiro_contrato_detail(request, agreement_id):
     agreement = get_object_or_404(
-        FeeAgreement.objects.select_related("customer"),
-        id=contract_id,
+        FeeAgreement.objects.select_related("customer", "process"),
+        id=agreement_id,
         organization=request.organization,
         office=request.office,
     )
     invoices = agreement.invoices.order_by("-due_date")
-    total_paid = invoices.filter(status="paid").aggregate(total=Sum("amount"))["total"] or 0
-    total_pending = invoices.exclude(status="paid").aggregate(total=Sum("amount"))["total"] or 0
+    total_paid = Payment.objects.filter(
+        invoice__agreement=agreement
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+    total_pending = invoices.exclude(
+        status__in=["paid", "cancelled"]
+    ).aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
 
     return render(request, "portal/financeiro_contrato_detail.html", {
         "agreement": agreement,
@@ -172,7 +193,7 @@ def financeiro_faturas(request):
     office = request.office
     status_filter = request.GET.get("status", "")
 
-    # Batch update faturas vencidas (Phase 1 fix — sem loop)
+    # Batch update faturas vencidas
     today = timezone.now().date()
     Invoice.objects.filter(
         office=office,
@@ -183,7 +204,7 @@ def financeiro_faturas(request):
     qs = Invoice.objects.filter(
         organization=request.organization,
         office=office,
-    ).select_related("fee_agreement__customer").order_by("-due_date")
+    ).select_related("agreement__customer").order_by("-due_date")
 
     if status_filter:
         qs = qs.filter(status=status_filter)
@@ -194,6 +215,7 @@ def financeiro_faturas(request):
     return render(request, "portal/financeiro_faturas.html", {
         "invoices": invoices,
         "status_filter": status_filter,
+        "status_choices": Invoice.STATUS_CHOICES,
         "active_page": "financeiro",
     })
 
@@ -203,44 +225,51 @@ def financeiro_faturas(request):
 @require_http_methods(["POST"])
 def financeiro_fatura_create(request):
     payload = parse_json_body(request)
-    contract_id = payload.get("contract_id")
-    if not contract_id:
-        return JsonResponse({"error": "contract_id obrigatório"}, status=400)
+    agreement_id = payload.get("agreement_id")
+    if not agreement_id:
+        return JsonResponse({"error": "agreement_id obrigatório"}, status=400)
 
     agreement = get_object_or_404(
         FeeAgreement,
-        id=contract_id,
+        id=agreement_id,
         organization=request.organization,
         office=request.office,
     )
+
+    issue_date = parse_date(payload.get("issue_date", ""))
     due_date = parse_date(payload.get("due_date", ""))
-    if not due_date:
-        return JsonResponse({"error": "due_date obrigatório"}, status=400)
+    if not issue_date or not due_date:
+        return JsonResponse({"error": "issue_date e due_date obrigatórios"}, status=400)
 
     amount = payload.get("amount")
     if not amount:
         return JsonResponse({"error": "amount obrigatório"}, status=400)
 
     try:
-        amount = float(amount)
-    except (ValueError, TypeError):
+        amount = Decimal(str(amount))
+    except Exception:
         return JsonResponse({"error": "amount inválido"}, status=400)
 
     invoice = Invoice.objects.create(
         organization=request.organization,
         office=request.office,
-        fee_agreement=agreement,
-        amount=amount,
+        agreement=agreement,
+        number=payload.get("number", "").strip(),
+        issue_date=issue_date,
         due_date=due_date,
+        amount=amount,
+        discount=Decimal(str(payload.get("discount", "0.00"))),
         description=payload.get("description", "").strip(),
+        notes=payload.get("notes", ""),
         status="issued",
     )
-    log_activity(request, "invoice_create", f"Fatura #{invoice.id} criada — R${amount:.2f}")
+    log_activity(request, "invoice_create", f"Fatura {invoice.number or f'#{invoice.id}'} criada — R${amount:.2f}")
 
     return JsonResponse({
         "ok": True,
         "invoice": {
             "id": invoice.id,
+            "number": invoice.number or "",
             "amount": str(invoice.amount),
             "due_date": invoice.due_date.isoformat(),
             "status": invoice.status,
@@ -260,16 +289,38 @@ def financeiro_fatura_registrar_pagamento(request, invoice_id):
         office=request.office,
     )
     payload = parse_json_body(request)
-    paid_date = parse_date(payload.get("paid_date", ""))
 
-    invoice.status = "paid"
-    invoice.paid_date = paid_date or timezone.now().date()
-    invoice.paid_amount = payload.get("paid_amount") or invoice.amount
-    invoice.payment_method = payload.get("payment_method", "")
-    invoice.save()
+    paid_at = parse_date(payload.get("paid_at", ""))
+    amount = payload.get("amount")
 
-    log_activity(request, "invoice_pay", f"Fatura #{invoice.id} paga — R${invoice.paid_amount}")
-    return JsonResponse({"ok": True, "status": "paid"})
+    if not paid_at or not amount:
+        return JsonResponse({"error": "paid_at e amount obrigatórios"}, status=400)
+
+    try:
+        amount = Decimal(str(amount))
+    except Exception:
+        return JsonResponse({"error": "amount inválido"}, status=400)
+
+    # Cria o Payment
+    Payment.objects.create(
+        organization=request.organization,
+        office=request.office,
+        invoice=invoice,
+        paid_at=paid_at,
+        amount=amount,
+        method=payload.get("method", "pix"),
+        reference=payload.get("reference", ""),
+        notes=payload.get("notes", ""),
+        recorded_by=request.user,
+    )
+
+    # Atualiza status da fatura se quitada
+    if invoice.balance <= 0:
+        invoice.status = "paid"
+        invoice.save(update_fields=["status"])
+
+    log_activity(request, "payment_create", f"Pagamento R${amount} na fatura {invoice.number or f'#{invoice.id}'}")
+    return JsonResponse({"ok": True, "status": invoice.status})
 
 
 # ==================== DESPESAS ====================
@@ -279,6 +330,7 @@ def financeiro_fatura_registrar_pagamento(request, invoice_id):
 def financeiro_despesas(request):
     search = request.GET.get("search", "")
     category = request.GET.get("category", "")
+    status_filter = request.GET.get("status", "")
 
     qs = Expense.objects.filter(
         organization=request.organization,
@@ -287,11 +339,14 @@ def financeiro_despesas(request):
 
     if search:
         qs = qs.filter(
-            Q(description__icontains=search)
+            Q(title__icontains=search)
+            | Q(description__icontains=search)
             | Q(supplier__icontains=search)
         )
     if category:
         qs = qs.filter(category=category)
+    if status_filter:
+        qs = qs.filter(status=status_filter)
 
     paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
     expenses = paginator.get_page(request.GET.get("page", 1))
@@ -300,6 +355,9 @@ def financeiro_despesas(request):
         "expenses": expenses,
         "search": search,
         "category": category,
+        "status_filter": status_filter,
+        "category_choices": Expense.CATEGORY_CHOICES,
+        "status_choices": Expense.STATUS_CHOICES,
         "active_page": "financeiro",
     })
 
@@ -309,14 +367,14 @@ def financeiro_despesas(request):
 @require_http_methods(["POST"])
 def financeiro_despesa_create(request):
     payload = parse_json_body(request)
-    description = payload.get("description", "").strip()
-    if not description:
-        return JsonResponse({"error": "Descrição obrigatória"}, status=400)
+    title = payload.get("title", "").strip()
+    if not title:
+        return JsonResponse({"error": "Título obrigatório"}, status=400)
 
     amount = payload.get("amount")
     try:
-        amount = float(amount)
-    except (ValueError, TypeError):
+        amount = Decimal(str(amount))
+    except Exception:
         return JsonResponse({"error": "Valor inválido"}, status=400)
 
     date = parse_date(payload.get("date", "")) or timezone.now().date()
@@ -324,20 +382,23 @@ def financeiro_despesa_create(request):
     expense = Expense.objects.create(
         organization=request.organization,
         office=request.office,
-        description=description,
+        title=title,
+        description=payload.get("description", "").strip(),
         amount=amount,
         date=date,
-        category=payload.get("category", ""),
+        category=payload.get("category", "other"),
+        status=payload.get("status", "pending"),
         supplier=payload.get("supplier", "").strip(),
+        reference=payload.get("reference", "").strip(),
         notes=payload.get("notes", "").strip(),
-        created_by=request.user,
+        responsible=request.user,
     )
-    log_activity(request, "expense_create", f"Despesa criada: {description} — R${amount:.2f}")
+    log_activity(request, "expense_create", f"Despesa criada: {title} — R${amount:.2f}")
     return JsonResponse({
         "ok": True,
         "expense": {
             "id": expense.id,
-            "description": expense.description,
+            "title": expense.title,
             "amount": str(expense.amount),
             "date": expense.date.isoformat(),
         },
@@ -356,19 +417,25 @@ def financeiro_despesa_update(request, expense_id):
     )
     payload = parse_json_body(request)
 
+    if "title" in payload:
+        expense.title = payload["title"].strip()
     if "description" in payload:
         expense.description = payload["description"].strip()
     if "amount" in payload:
         try:
-            expense.amount = float(payload["amount"])
-        except (ValueError, TypeError):
+            expense.amount = Decimal(str(payload["amount"]))
+        except Exception:
             return JsonResponse({"error": "Valor inválido"}, status=400)
     if "date" in payload:
         expense.date = parse_date(payload["date"]) or expense.date
     if "category" in payload:
         expense.category = payload["category"]
+    if "status" in payload:
+        expense.status = payload["status"]
     if "supplier" in payload:
         expense.supplier = payload["supplier"].strip()
+    if "reference" in payload:
+        expense.reference = payload["reference"].strip()
     if "notes" in payload:
         expense.notes = payload["notes"].strip()
 
@@ -387,9 +454,9 @@ def financeiro_despesa_delete(request, expense_id):
         organization=request.organization,
         office=request.office,
     )
-    desc = expense.description
+    title = expense.title
     expense.delete()
-    log_activity(request, "expense_delete", f"Despesa deletada: {desc}")
+    log_activity(request, "expense_delete", f"Despesa deletada: {title}")
     return JsonResponse({"ok": True})
 
 
@@ -404,11 +471,14 @@ def financeiro_despesa_detail(request, expense_id):
     )
     return JsonResponse({
         "id": expense.id,
+        "title": expense.title,
         "description": expense.description,
         "amount": str(expense.amount),
         "date": expense.date.isoformat(),
         "category": expense.category,
+        "status": expense.status,
         "supplier": expense.supplier,
+        "reference": expense.reference,
         "notes": expense.notes,
         "created_at": expense.created_at.isoformat(),
     })
