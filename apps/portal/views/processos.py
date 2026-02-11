@@ -17,6 +17,9 @@ from apps.processes.models import Process
 from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.views._helpers import log_activity
 
+from apps.portal.permissions import require_role, require_action
+from apps.portal.audit import audited
+
 
 @require_portal_access()
 def processos(request):
@@ -69,6 +72,7 @@ def processos(request):
 
 
 @require_portal_access()
+@require_role("lawyer")
 @require_http_methods(["GET", "POST"])
 def processo_create(request):
     if request.method == "POST":
@@ -126,6 +130,8 @@ def processo_detail(request, process_id):
 
 
 @require_portal_json()
+@require_role("manager")
+@audited(action="delete", model_name="Process")
 @require_http_methods(["POST"])
 def processo_delete(request, process_id):
     process = get_object_or_404(

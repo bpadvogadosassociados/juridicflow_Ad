@@ -7,8 +7,11 @@ from django.shortcuts import render, redirect
 from apps.portal.decorators import require_portal_access
 from apps.portal.forms import ThemeForm
 
+from apps.portal.permissions import require_role, require_action
+from apps.portal.audit import audited
 
 @require_portal_access()
+@require_role("manager")
 def settings_view(request):
     if request.method == "POST":
         form = ThemeForm(request.POST)

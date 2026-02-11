@@ -19,6 +19,8 @@ from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.forms import DocumentUploadForm
 from apps.portal.views._helpers import parse_json_body, log_activity
 
+from apps.portal.permissions import require_role, require_action
+from apps.portal.audit import audited
 
 def _collect_doc_tags(qs, limit=10):
     """Conta tags de documentos sem carregar objetos inteiros."""
@@ -111,6 +113,7 @@ def documentos(request):
 # ==================== UPLOAD ====================
 
 @require_portal_access()
+@require_role("assistant")
 @require_http_methods(["GET", "POST"])
 def documento_upload(request):
     if request.method == "POST":
@@ -257,6 +260,8 @@ def documento_version_download(request, version_id):
 # ==================== DELETE ====================
 
 @require_portal_json()
+@require_role("manager")
+@audited(action="delete", model_name="Document")
 @require_http_methods(["POST"])
 def documento_delete(request, document_id):
     doc = get_object_or_404(
@@ -274,6 +279,7 @@ def documento_delete(request, document_id):
 # ==================== VERSIONS ====================
 
 @require_portal_json()
+@require_role("assistant")
 @require_http_methods(["POST"])
 def documento_version_create(request, document_id):
     doc = get_object_or_404(
@@ -323,6 +329,8 @@ def documento_version_create(request, document_id):
 # ==================== SHARES ====================
 
 @require_portal_json()
+@require_role("lawyer")
+@audited(action="share", model_name="Document")
 @require_http_methods(["POST"])
 def documento_share_create(request, document_id):
     doc = get_object_or_404(
@@ -357,6 +365,7 @@ def documento_share_create(request, document_id):
 
 
 @require_portal_json()
+@require_role("lawyer")
 @require_http_methods(["POST"])
 def documento_share_delete(request, share_id):
     share = get_object_or_404(
@@ -372,6 +381,7 @@ def documento_share_delete(request, share_id):
 # ==================== COMMENTS ====================
 
 @require_portal_json()
+@require_role("intern")
 @require_http_methods(["POST"])
 def documento_comment_create(request, document_id):
     doc = get_object_or_404(
@@ -419,6 +429,7 @@ def pastas(request):
 
 
 @require_portal_json()
+@require_role("lawyer")
 @require_http_methods(["POST"])
 def pasta_create(request):
     payload = parse_json_body(request)
@@ -440,6 +451,7 @@ def pasta_create(request):
 
 
 @require_portal_json()
+@require_role("manager")
 @require_http_methods(["POST"])
 def pasta_delete(request, folder_id):
     folder = get_object_or_404(

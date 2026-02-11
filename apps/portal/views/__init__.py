@@ -139,3 +139,6 @@ from apps.portal.views._api import (
     global_search,
     notifications_json,
 )
+
+from apps.portal.permissions import require_role, require_action
+from apps.portal.audit import audited

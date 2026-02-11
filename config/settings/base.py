@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "apps.api",
     "apps.portal",
     "apps.publications",
+    "apps.core",
 ]
 
 MIDDLEWARE = [
@@ -66,6 +67,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "apps.portal.context_processors.portal_context",
+                "apps.portal.permissions.portal_permissions",
             ],
         },
     },

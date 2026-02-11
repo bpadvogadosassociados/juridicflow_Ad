@@ -2,7 +2,6 @@ from __future__ import annotations
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
-from apps.organizations.models import OrganizationScopedModel
 
 class OfficePreference(models.Model):
     THEME_CHOICES = [
@@ -154,7 +153,10 @@ class ChatMessage(models.Model):
     class Meta:
         ordering = ["created_at"]
 
-class Notification(OrganizationScopedModel):
+class Notification(models.Model):
+    organization = models.ForeignKey("organizations.Organization", on_delete=models.CASCADE, related_name="notifications")
+    office = models.ForeignKey("offices.Office", on_delete=models.CASCADE, related_name="notifications")
+
     """Notificações do portal para usuários."""
 
     TYPE_CHOICES = [
@@ -187,3 +189,109 @@ class Notification(OrganizationScopedModel):
 
     def __str__(self):
         return f"[{self.type}] {self.title} → {self.user}"
+
+
+class Task(models.Model):
+    """
+    Tarefa com campos completos — substitui KanbanCard como fonte de verdade.
+    O KanbanCard continua existindo para posição visual no board,
+    mas agora aponta para Task via OneToOne.
+    """
+
+    PRIORITY_CHOICES = [
+        ("low", "Baixa"),
+        ("medium", "Média"),
+        ("high", "Alta"),
+        ("critical", "Crítica"),
+    ]
+
+    STATUS_CHOICES = [
+        ("backlog", "Backlog"),
+        ("todo", "A Fazer"),
+        ("in_progress", "Em Andamento"),
+        ("review", "Em Revisão"),
+        ("done", "Concluído"),
+        ("cancelled", "Cancelado"),
+    ]
+
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.CASCADE, related_name="tasks"
+    )
+    office = models.ForeignKey(
+        "offices.Office", on_delete=models.CASCADE, related_name="tasks"
+    )
+
+    title = models.CharField(max_length=300)
+    description = models.TextField(blank=True, default="")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="todo")
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default="medium")
+
+    # Atribuição
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="assigned_tasks",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="created_tasks",
+    )
+
+    # Datas
+    due_date = models.DateField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    # Vinculações opcionais
+    process = models.ForeignKey(
+        "processes.Process",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="tasks",
+    )
+    customer = models.ForeignKey(
+        "customers.Customer",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="tasks",
+    )
+
+    # Tags (usa o model Tag do core — adicione apps.core ao INSTALLED_APPS primeiro)
+    # Descomente quando o app core estiver instalado:
+    # labels = models.ManyToManyField("core.Tag", blank=True, related_name="tasks")
+
+    # Kanban visual
+    kanban_card = models.OneToOneField(
+        "portal.KanbanCard",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="task",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["office", "status"]),
+            models.Index(fields=["office", "assigned_to"]),
+            models.Index(fields=["office", "due_date"]),
+            models.Index(fields=["office", "priority", "status"]),
+        ]
+
+    def __str__(self):
+        return self.title
+
+    def mark_done(self):
+        self.status = "done"
+        self.completed_at = timezone.now()
+        self.save(update_fields=["status", "completed_at", "updated_at"])
+
+    @property
+    def is_overdue(self):
+        if not self.due_date or self.status in ("done", "cancelled"):
+            return False
+        return self.due_date < timezone.now().date()

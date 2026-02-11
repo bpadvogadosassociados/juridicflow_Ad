@@ -23,6 +23,8 @@ from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.forms import CustomerForm
 from apps.portal.views._helpers import log_activity, parse_json_body
 
+from apps.portal.permissions import require_role, require_action
+from apps.portal.audit import audited
 
 def _collect_tags(qs):
     """Coleta tags de um queryset sem carregar objetos inteiros."""
@@ -137,6 +139,7 @@ def contatos(request):
 # ==================== CREATE / EDIT ====================
 
 @require_portal_access()
+@require_role("assistant")
 @require_http_methods(["GET", "POST"])
 def contato_create(request):
     if request.method == "POST":
@@ -200,6 +203,7 @@ def contato_detail(request, customer_id):
 
 
 @require_portal_access()
+@require_role("lawyer")
 @require_http_methods(["GET", "POST"])
 def contato_edit(request, customer_id):
     customer = get_object_or_404(
@@ -234,6 +238,8 @@ def contato_edit(request, customer_id):
 
 
 @require_portal_json()
+@require_role("manager")
+@audited(action="delete", model_name="Customer")
 @require_http_methods(["POST"])
 def contato_delete(request, customer_id):
     customer = get_object_or_404(
@@ -251,6 +257,7 @@ def contato_delete(request, customer_id):
 # ==================== INTERAÇÕES ====================
 
 @require_portal_json()
+@require_role("intern")
 @require_http_methods(["POST"])
 def contato_interaction_create(request, customer_id):
     customer = get_object_or_404(
@@ -292,6 +299,8 @@ def contato_interaction_create(request, customer_id):
 # ==================== IMPORT / EXPORT ====================
 
 @require_portal_access()
+@require_role("lawyer")
+@audited(action="export", model_name="Customer")
 def contatos_export(request):
     customers = Customer.objects.filter(
         office=request.office, is_deleted=False
@@ -323,6 +332,8 @@ def contatos_export(request):
 
 
 @require_portal_json()
+@require_role("manager")
+@audited(action="import", model_name="Customer")
 @require_http_methods(["POST"])
 def contatos_import(request):
     if "file" not in request.FILES:

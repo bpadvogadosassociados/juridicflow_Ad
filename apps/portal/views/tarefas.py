@@ -1,6 +1,11 @@
 """
-Views de Kanban / Tarefas.
+Views de Kanban / Tarefas — CORRIGIDO para os models reais.
+
+Campos reais:
+  KanbanColumn: board, title, order (não position/color)
+  KanbanCard: board, column, number, title, body_md, order, created_by, created_at
 """
+from django.db.models import Max
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404
 from django.views.decorators.http import require_http_methods
@@ -9,6 +14,8 @@ from apps.portal.models import KanbanBoard, KanbanColumn, KanbanCard
 from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.views._helpers import parse_json_body, log_activity
 
+from apps.portal.permissions import require_role, require_action
+from apps.portal.audit import audited
 
 # ==================== HTML ====================
 
@@ -17,7 +24,7 @@ def kanban(request):
     org = request.organization
     office = request.office
     board, _ = KanbanBoard.objects.get_or_create(organization=org, office=office)
-    columns = board.columns.prefetch_related("cards").order_by("position")
+    columns = board.columns.prefetch_related("cards").order_by("order")
 
     return render(request, "portal/kanban.html", {
         "board": board,
@@ -28,13 +35,12 @@ def kanban(request):
 
 @require_portal_access()
 def task_list(request):
-    """Vista em lista das tarefas (cards)."""
     org = request.organization
     office = request.office
     board, _ = KanbanBoard.objects.get_or_create(organization=org, office=office)
     cards = KanbanCard.objects.filter(
         board=board,
-    ).select_related("column").order_by("column__position", "position")
+    ).select_related("column").order_by("column__order", "order")
 
     return render(request, "portal/task_list.html", {
         "cards": cards,
@@ -49,25 +55,24 @@ def kanban_board_json(request):
     org = request.organization
     office = request.office
     board, _ = KanbanBoard.objects.get_or_create(organization=org, office=office)
-    columns = board.columns.prefetch_related("cards").order_by("position")
+    columns = board.columns.prefetch_related("cards").order_by("order")
 
     data = []
     for col in columns:
         cards = []
-        for card in col.cards.order_by("position"):
+        for card in col.cards.order_by("order"):
             cards.append({
                 "id": card.id,
+                "number": card.number,
                 "title": card.title,
-                "description": card.description or "",
-                "position": card.position,
-                "color": card.color or "",
+                "body_md": card.body_md or "",
+                "order": card.order,
                 "created_at": card.created_at.isoformat(),
             })
         data.append({
             "id": col.id,
             "title": col.title,
-            "position": col.position,
-            "color": col.color or "",
+            "order": col.order,
             "cards": cards,
         })
 
@@ -77,6 +82,7 @@ def kanban_board_json(request):
 # ==================== COLUMNS ====================
 
 @require_portal_json()
+@require_role("manager")
 @require_http_methods(["POST"])
 def kanban_column_create(request):
     org = request.organization
@@ -87,20 +93,20 @@ def kanban_column_create(request):
     if not title:
         return JsonResponse({"error": "Título obrigatório"}, status=400)
 
-    max_pos = board.columns.count()
+    max_order = board.columns.aggregate(m=Max("order"))["m"] or 0
     col = KanbanColumn.objects.create(
         board=board,
         title=title,
-        position=max_pos,
-        color=payload.get("color", ""),
+        order=max_order + 1,
     )
     return JsonResponse({
         "ok": True,
-        "column": {"id": col.id, "title": col.title, "position": col.position},
+        "column": {"id": col.id, "title": col.title, "order": col.order},
     })
 
 
 @require_portal_json()
+@require_role("manager")
 @require_http_methods(["POST"])
 def kanban_column_update(request, column_id):
     col = get_object_or_404(
@@ -112,15 +118,14 @@ def kanban_column_update(request, column_id):
     payload = parse_json_body(request)
     if "title" in payload:
         col.title = payload["title"].strip()
-    if "position" in payload:
-        col.position = int(payload["position"])
-    if "color" in payload:
-        col.color = payload["color"]
+    if "order" in payload:
+        col.order = int(payload["order"])
     col.save()
     return JsonResponse({"ok": True})
 
 
 @require_portal_json()
+@require_role("manager")
 @require_http_methods(["POST"])
 def kanban_column_delete(request, column_id):
     col = get_object_or_404(
@@ -137,6 +142,7 @@ def kanban_column_delete(request, column_id):
 # ==================== CARDS ====================
 
 @require_portal_json()
+@require_role("assistant")
 @require_http_methods(["POST"])
 def kanban_card_create(request):
     org = request.organization
@@ -148,38 +154,41 @@ def kanban_card_create(request):
     if not column_id:
         return JsonResponse({"error": "column_id obrigatório"}, status=400)
 
-    column = get_object_or_404(
-        KanbanColumn,
-        id=column_id,
-        board=board,
-    )
+    column = get_object_or_404(KanbanColumn, id=column_id, board=board)
+
     title = payload.get("title", "").strip()
     if not title:
         return JsonResponse({"error": "Título obrigatório"}, status=400)
 
-    max_pos = column.cards.count()
+    # Auto-increment number
+    max_number = board.cards.aggregate(m=Max("number"))["m"] or 0
+    max_order = column.cards.aggregate(m=Max("order"))["m"] or 0
+
     card = KanbanCard.objects.create(
         board=board,
         column=column,
+        number=max_number + 1,
         title=title,
-        description=payload.get("description", "").strip(),
-        position=max_pos,
-        color=payload.get("color", ""),
+        body_md=payload.get("body_md", "").strip(),
+        order=max_order + 1,
+        created_by=request.user,
     )
-    log_activity(request, "task_create", f"Tarefa criada: {card.title}")
+    log_activity(request, "task_create", f"Tarefa #{card.number}: {card.title}")
 
     return JsonResponse({
         "ok": True,
         "card": {
             "id": card.id,
+            "number": card.number,
             "title": card.title,
             "column_id": column.id,
-            "position": card.position,
+            "order": card.order,
         },
     })
 
 
 @require_portal_json()
+@require_role("assistant")
 @require_http_methods(["POST"])
 def kanban_card_update(request, card_id):
     card = get_object_or_404(
@@ -191,17 +200,16 @@ def kanban_card_update(request, card_id):
     payload = parse_json_body(request)
     if "title" in payload:
         card.title = payload["title"].strip()
-    if "description" in payload:
-        card.description = payload["description"].strip()
-    if "color" in payload:
-        card.color = payload["color"]
-    if "position" in payload:
-        card.position = int(payload["position"])
+    if "body_md" in payload:
+        card.body_md = payload["body_md"].strip()
+    if "order" in payload:
+        card.order = int(payload["order"])
     card.save()
     return JsonResponse({"ok": True})
 
 
 @require_portal_json()
+@require_role("assistant")
 @require_http_methods(["POST"])
 def kanban_card_move(request, card_id):
     card = get_object_or_404(
@@ -222,8 +230,8 @@ def kanban_card_move(request, card_id):
         board__office=request.office,
     )
     card.column = target_column
-    if "position" in payload:
-        card.position = int(payload["position"])
+    if "order" in payload:
+        card.order = int(payload["order"])
     card.save()
     return JsonResponse({"ok": True})
 
@@ -238,10 +246,10 @@ def kanban_card_detail(request, card_id):
     )
     return JsonResponse({
         "id": card.id,
+        "number": card.number,
         "title": card.title,
-        "description": card.description or "",
+        "body_md": card.body_md or "",
         "column_id": card.column_id,
-        "position": card.position,
-        "color": card.color or "",
+        "order": card.order,
         "created_at": card.created_at.isoformat(),
     })

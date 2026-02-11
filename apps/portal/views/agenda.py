@@ -1,5 +1,11 @@
 """
-Views de Agenda / Calendário.
+Views de Agenda / Calendário — CORRIGIDO para os models reais.
+
+Campos reais:
+  CalendarEntry: organization, office, title, start, end, all_day, color, created_by, created_at
+    (SEM: description, location, event_type)
+  CalendarEventTemplate: organization, office, title, color, is_active, created_at
+    (SEM: name, description, duration_minutes, event_type)
 """
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404
@@ -10,6 +16,8 @@ from apps.portal.models import CalendarEntry, CalendarEventTemplate
 from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.views._helpers import parse_json_body, log_activity
 
+from apps.portal.permissions import require_role, require_action
+from apps.portal.audit import audited
 
 # ==================== HTML ====================
 
@@ -45,17 +53,13 @@ def calendar_events_json(request):
             "end": entry.end.isoformat() if entry.end else None,
             "allDay": entry.all_day,
             "color": entry.color or "#3788d8",
-            "extendedProps": {
-                "description": entry.description or "",
-                "location": entry.location or "",
-                "event_type": entry.event_type or "",
-            },
         })
 
     return JsonResponse(events, safe=False)
 
 
 @require_portal_json()
+@require_role("assistant")
 @require_http_methods(["POST"])
 def calendar_event_create(request):
     payload = parse_json_body(request)
@@ -75,13 +79,10 @@ def calendar_event_create(request):
         organization=request.organization,
         office=request.office,
         title=title,
-        description=payload.get("description", "").strip(),
         start=start,
         end=end,
         all_day=payload.get("all_day", False),
-        color=payload.get("color", ""),
-        location=payload.get("location", "").strip(),
-        event_type=payload.get("event_type", ""),
+        color=payload.get("color", "#3c8dbc"),
         created_by=request.user,
     )
     log_activity(request, "calendar_create", f"Evento: {entry.title}")
@@ -96,6 +97,7 @@ def calendar_event_create(request):
 
 
 @require_portal_json()
+@require_role("assistant")
 @require_http_methods(["POST"])
 def calendar_event_update(request, event_id):
     entry = get_object_or_404(
@@ -108,8 +110,6 @@ def calendar_event_update(request, event_id):
 
     if "title" in payload:
         entry.title = payload["title"].strip()
-    if "description" in payload:
-        entry.description = payload["description"].strip()
     if "start" in payload:
         entry.start = parse_datetime(payload["start"]) or parse_date(payload["start"])
     if "end" in payload:
@@ -119,16 +119,13 @@ def calendar_event_update(request, event_id):
         entry.all_day = payload["all_day"]
     if "color" in payload:
         entry.color = payload["color"]
-    if "location" in payload:
-        entry.location = payload["location"].strip()
-    if "event_type" in payload:
-        entry.event_type = payload["event_type"]
 
     entry.save()
     return JsonResponse({"ok": True})
 
 
 @require_portal_json()
+@require_role("lawyer")
 @require_http_methods(["POST"])
 def calendar_event_delete(request, event_id):
     entry = get_object_or_404(
@@ -150,16 +147,14 @@ def calendar_templates_list(request):
     templates = CalendarEventTemplate.objects.filter(
         organization=request.organization,
         office=request.office,
-    ).order_by("name")
+        is_active=True,
+    ).order_by("title")
 
     data = [
         {
             "id": t.id,
-            "name": t.name,
-            "description": t.description or "",
-            "duration_minutes": t.duration_minutes,
-            "color": t.color or "",
-            "event_type": t.event_type or "",
+            "title": t.title,
+            "color": t.color or "#3c8dbc",
         }
         for t in templates
     ]
@@ -167,26 +162,26 @@ def calendar_templates_list(request):
 
 
 @require_portal_json()
+@require_role("manager")
 @require_http_methods(["POST"])
 def calendar_template_create(request):
     payload = parse_json_body(request)
-    name = payload.get("name", "").strip()
-    if not name:
-        return JsonResponse({"error": "Nome obrigatório"}, status=400)
+    title = payload.get("title", "").strip()
+    if not title:
+        return JsonResponse({"error": "Título obrigatório"}, status=400)
 
     template = CalendarEventTemplate.objects.create(
         organization=request.organization,
         office=request.office,
-        name=name,
-        description=payload.get("description", "").strip(),
-        duration_minutes=payload.get("duration_minutes", 60),
-        color=payload.get("color", ""),
-        event_type=payload.get("event_type", ""),
+        title=title,
+        color=payload.get("color", "#3c8dbc"),
+        is_active=True,
     )
     return JsonResponse({"ok": True, "template_id": template.id})
 
 
 @require_portal_json()
+@require_role("manager")
 @require_http_methods(["POST"])
 def calendar_template_delete(request, template_id):
     template = get_object_or_404(
