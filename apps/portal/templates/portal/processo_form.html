@@ -1,131 +1,154 @@
 {% extends "portal/base.html" %}
-{% block page_title %}Novo Processo{% endblock %}
-{% block breadcrumb %}Processos / Novo{% endblock %}
+{% load static %}
+{% block title %}{% if process %}Editar Processo{% else %}Novo Processo{% endif %} | JuridicFlow{% endblock %}
+{% block page_title %}{% if process %}Editar Processo {{ process.number }}{% else %}Novo Processo{% endif %}{% endblock %}
+{% block breadcrumb %}Processos / {% if process %}Editar{% else %}Novo{% endif %}{% endblock %}
 {% block content %}
-<div class="row">
-  <div class="col-md-8">
-    <div class="card card-primary">
-      <div class="card-header"><h3 class="card-title">Cadastrar Novo Processo</h3></div>
-      <form method="post" novalidate>
-        {% csrf_token %}
+<form method="post" autocomplete="off">
+  {% csrf_token %}
+  <div class="row">
+
+    <!-- Col principal -->
+    <div class="col-md-8">
+      <div class="card card-primary card-outline">
+        <div class="card-header"><h3 class="card-title">Identificação</h3></div>
         <div class="card-body">
-          
-          <!-- Number Field -->
-          <div class="form-group">
-            {{ form.number.label_tag }}
-            {{ form.number }}
-            {% if form.number.help_text %}
+          <div class="form-row">
+            <div class="col-md-8 form-group">
+              <label>Número CNJ *</label>
+              {{ form.number }}
               <small class="text-muted">{{ form.number.help_text }}</small>
-            {% endif %}
-            {% if form.number.errors %}
-              <div class="text-danger">
-                {% for error in form.number.errors %}
-                  <small>{{ error }}</small><br>
-                {% endfor %}
-              </div>
-            {% endif %}
-          </div>
-          
-          <!-- Court Field -->
-          <div class="form-group">
-            {{ form.court.label_tag }}
-            {{ form.court }}
-            {% if form.court.errors %}
-              <div class="text-danger">
-                {% for error in form.court.errors %}
-                  <small>{{ error }}</small><br>
-                {% endfor %}
-              </div>
-            {% endif %}
-          </div>
-          
-          <!-- Subject Field -->
-          <div class="form-group">
-            {{ form.subject.label_tag }}
-            {{ form.subject }}
-            {% if form.subject.errors %}
-              <div class="text-danger">
-                {% for error in form.subject.errors %}
-                  <small>{{ error }}</small><br>
-                {% endfor %}
-              </div>
-            {% endif %}
-          </div>
-          
-          <div class="row">
-            <div class="col-md-6">
-              <!-- Phase Field -->
-              <div class="form-group">
-                {{ form.phase.label_tag }}
-                {{ form.phase }}
-                {% if form.phase.errors %}
-                  <div class="text-danger">
-                    {% for error in form.phase.errors %}
-                      <small>{{ error }}</small><br>
-                    {% endfor %}
-                  </div>
-                {% endif %}
-              </div>
             </div>
-            <div class="col-md-6">
-              <!-- Status Field -->
-              <div class="form-group">
-                {{ form.status.label_tag }}
-                {{ form.status }}
-                {% if form.status.errors %}
-                  <div class="text-danger">
-                    {% for error in form.status.errors %}
-                      <small>{{ error }}</small><br>
-                    {% endfor %}
-                  </div>
-                {% endif %}
-              </div>
+            <div class="col-md-4 form-group">
+              <label>Tribunal</label>
+              {{ form.court }}
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="col-md-8 form-group">
+              <label>Assunto</label>
+              {{ form.subject }}
+            </div>
+            <div class="col-md-4 form-group">
+              <label>Área Jurídica</label>
+              {{ form.area }}
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="col-md-6 form-group">
+              <label>Vara / Unidade Judiciária</label>
+              {{ form.court_unit }}
+            </div>
+            <div class="col-md-6 form-group">
+              <label>Nome do Juiz</label>
+              {{ form.judge_name }}
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Descrição / Objeto da Ação</label>
+            {{ form.description }}
+          </div>
+        </div>
+      </div>
+
+      <div class="card card-outline card-info">
+        <div class="card-header"><h3 class="card-title">Datas Importantes</h3></div>
+        <div class="card-body">
+          <div class="form-row">
+            <div class="col-md-3 form-group">
+              <label>Ajuizamento</label>
+              {{ form.filing_date }}
+            </div>
+            <div class="col-md-3 form-group">
+              <label>Distribuição</label>
+              {{ form.distribution_date }}
+            </div>
+            <div class="col-md-3 form-group">
+              <label>1ª Audiência</label>
+              {{ form.first_hearing_date }}
+            </div>
+            <div class="col-md-3 form-group">
+              <label>Sentença</label>
+              {{ form.sentence_date }}
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="col-md-6 form-group">
+              <label>Última Movimentação</label>
+              {{ form.last_movement }}
+            </div>
+            <div class="col-md-3 form-group">
+              <label>Data</label>
+              {{ form.last_movement_date }}
             </div>
           </div>
         </div>
-        
-        <div class="card-footer">
-          <button type="submit" class="btn btn-primary">Salvar</button>
-          <a href="{% url 'portal:processos' %}" class="btn btn-secondary">Cancelar</a>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Observações Internas</h3></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label>Próxima Movimentação Esperada</label>
+            {{ form.next_action }}
+          </div>
+          <div class="form-group">
+            <label>Observações Internas</label>
+            {{ form.internal_notes }}
+          </div>
+          <div class="form-group">
+            <label>Tags <small class="text-muted">(separadas por vírgula)</small></label>
+            {{ form.tags }}
+          </div>
         </div>
-      </form>
+      </div>
+    </div>
+
+    <!-- Col lateral -->
+    <div class="col-md-4">
+      <div class="card card-warning card-outline">
+        <div class="card-header"><h3 class="card-title">Status e Controle</h3></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label>Fase</label>
+            {{ form.phase }}
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            {{ form.status }}
+          </div>
+          <div class="form-group">
+            <label>Responsável</label>
+            {{ form.responsible }}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Análise</h3></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label>Valor da Causa (R$)</label>
+            {{ form.cause_value }}
+          </div>
+          <div class="form-group">
+            <label>Risco</label>
+            {{ form.risk }}
+          </div>
+          <div class="form-group">
+            <label>Probabilidade de Êxito (%)</label>
+            {{ form.success_probability }}
+          </div>
+        </div>
+      </div>
+
+      <div class="card-footer bg-white">
+        <button type="submit" class="btn btn-primary btn-block">
+          <i class="fas fa-save mr-1"></i> {% if process %}Salvar Alterações{% else %}Criar Processo{% endif %}
+        </button>
+        <a href="{% if process %}{% url 'portal:processo_detail' process.id %}{% else %}{% url 'portal:processos' %}{% endif %}" class="btn btn-outline-secondary btn-block mt-1">Cancelar</a>
+      </div>
     </div>
   </div>
-</div>
-
-{% endblock %}
-
-{% block extra_js %}
-<script>
-// Validação client-side adicional
-document.addEventListener('DOMContentLoaded', function() {
-  const numberInput = document.querySelector('input[name="number"]');
-  
-  if (numberInput) {
-    numberInput.addEventListener('blur', function() {
-      const value = this.value.trim();
-      const pattern = /^\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}$/;
-      
-      if (value && !pattern.test(value)) {
-        this.classList.add('is-invalid');
-        
-        // Adiciona mensagem de erro visual se não existir
-        let errorDiv = this.parentElement.querySelector('.invalid-feedback');
-        if (!errorDiv) {
-          errorDiv = document.createElement('div');
-          errorDiv.className = 'invalid-feedback d-block';
-          errorDiv.textContent = 'Formato inválido. Use: NNNNNNN-DD.AAAA.J.TR.OOOO';
-          this.parentElement.appendChild(errorDiv);
-        }
-      } else {
-        this.classList.remove('is-invalid');
-        const errorDiv = this.parentElement.querySelector('.invalid-feedback');
-        if (errorDiv) {
-          errorDiv.remove();
-        }
-      }
-    });
-  }
-});
-</script>
+</form>
 {% endblock %}

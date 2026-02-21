@@ -1,0 +1,374 @@
+{% extends "portal/base.html" %}
+{% load static %}
+
+{% block title %}Relatórios — JuridicFlow{% endblock %}
+{% block page_title %}Relatórios{% endblock %}
+{% block breadcrumb %}Relatórios{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.min.css">
+<style>
+  .metric-card { border-radius: 8px; }
+  .chart-container { position: relative; height: 280px; }
+  .alert-item { border-left: 4px solid; padding: 8px 12px; margin-bottom: 6px; border-radius: 0 4px 4px 0; }
+  .alert-item.danger { border-color: #dc3545; background: rgba(220,53,69,.08); }
+  .alert-item.warning { border-color: #ffc107; background: rgba(255,193,7,.08); }
+  .filter-bar { background: #1c2331; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="relatorios-app">
+
+  <!-- Filtro de período -->
+  <div class="filter-bar d-flex align-items-center flex-wrap gap-2">
+    <span class="text-muted mr-3"><i class="fas fa-filter mr-1"></i> Período:</span>
+    <input type="date" id="filter-start" class="form-control form-control-sm" style="width:150px" value="{{ date_start }}">
+    <span class="text-muted mx-1">até</span>
+    <input type="date" id="filter-end" class="form-control form-control-sm" style="width:150px" value="{{ date_end }}">
+    <button class="btn btn-primary btn-sm ml-2" id="btn-filter"><i class="fas fa-sync-alt mr-1"></i>Atualizar</button>
+    <div class="ml-auto">
+      <div class="dropdown">
+        <button class="btn btn-secondary btn-sm dropdown-toggle" data-toggle="dropdown">
+          <i class="fas fa-download mr-1"></i>Exportar
+        </button>
+        <div class="dropdown-menu dropdown-menu-right">
+          <a class="dropdown-item" href="{% url 'portal:relatorios_export' %}?tipo=processos"><i class="fas fa-balance-scale mr-2"></i>Processos CSV</a>
+          <a class="dropdown-item" href="{% url 'portal:relatorios_export' %}?tipo=prazos"><i class="fas fa-clock mr-2"></i>Prazos CSV</a>
+          <a class="dropdown-item" href="{% url 'portal:relatorios_export' %}?tipo=financeiro"><i class="fas fa-dollar-sign mr-2"></i>Financeiro CSV</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Abas -->
+  <ul class="nav nav-tabs mb-3" id="relatorios-tabs" role="tablist">
+    <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#tab-processos"><i class="fas fa-balance-scale mr-1"></i>Processos</a></li>
+    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-prazos"><i class="fas fa-clock mr-1"></i>Prazos</a></li>
+    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-pipeline"><i class="fas fa-funnel-dollar mr-1"></i>Pipeline</a></li>
+    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-financeiro"><i class="fas fa-dollar-sign mr-1"></i>Financeiro</a></li>
+    <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#tab-alertas"><i class="fas fa-bell mr-1"></i>Alertas
+      {% if metrics.alerts %}<span class="badge badge-danger ml-1">{{ metrics.alerts|length }}</span>{% endif %}
+    </a></li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- ===== PROCESSOS ===== -->
+    <div class="tab-pane fade show active" id="tab-processos">
+      <div class="row">
+        <div class="col-md-3">
+          <div class="small-box bg-info metric-card">
+            <div class="inner"><h3>{{ metrics.process_total }}</h3><p>Total de Processos</p></div>
+            <div class="icon"><i class="fas fa-balance-scale"></i></div>
+          </div>
+        </div>
+        {% for item in metrics.process_by_status %}
+        <div class="col-md-3">
+          <div class="small-box {% if item.status == 'active' %}bg-success{% elif item.status == 'suspended' %}bg-warning{% elif item.status == 'archived' %}bg-secondary{% else %}bg-primary{% endif %} metric-card">
+            <div class="inner"><h3>{{ item.count }}</h3><p>{{ item.status|capfirst }}</p></div>
+            <div class="icon"><i class="fas fa-circle"></i></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="row">
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header"><h3 class="card-title">Por Fase</h3></div>
+            <div class="card-body"><div class="chart-container"><canvas id="chart-process-phase"></canvas></div></div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header"><h3 class="card-title">Por Área Jurídica</h3></div>
+            <div class="card-body"><div class="chart-container"><canvas id="chart-process-area"></canvas></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== PRAZOS ===== -->
+    <div class="tab-pane fade" id="tab-prazos">
+      <div class="row mb-3">
+        <div class="col-md-3">
+          <div class="small-box bg-danger metric-card">
+            <div class="inner"><h3>{{ metrics.deadlines_overdue }}</h3><p>Prazos Vencidos</p></div>
+            <div class="icon"><i class="fas fa-exclamation-triangle"></i></div>
+          </div>
+        </div>
+        {% for item in metrics.deadline_by_status %}
+        <div class="col-md-3">
+          <div class="small-box {% if item.status == 'completed' %}bg-success{% elif item.status == 'overdue' %}bg-danger{% elif item.status == 'pending' %}bg-warning{% else %}bg-secondary{% endif %} metric-card">
+            <div class="inner"><h3>{{ item.count }}</h3><p>{{ item.status|capfirst }}</p></div>
+            <div class="icon"><i class="fas fa-clock"></i></div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="row">
+        <div class="col-md-5">
+          <div class="card">
+            <div class="card-header"><h3 class="card-title">Status dos Prazos</h3></div>
+            <div class="card-body"><div class="chart-container"><canvas id="chart-deadline-status"></canvas></div></div>
+          </div>
+        </div>
+        <div class="col-md-7">
+          <div class="card">
+            <div class="card-header"><h3 class="card-title"><i class="fas fa-fire text-danger mr-1"></i>Prazos Críticos (7 dias)</h3></div>
+            <div class="card-body p-0">
+              <table class="table table-sm table-hover">
+                <thead><tr><th>Prazo</th><th>Vencimento</th><th>Prioridade</th></tr></thead>
+                <tbody>
+                  {% for d in metrics.deadlines_critical %}
+                  <tr>
+                    <td><a href="/app/prazos/">{{ d.title }}</a></td>
+                    <td>{{ d.due_date }}</td>
+                    <td><span class="badge badge-{% if d.priority == 'urgent' %}danger{% elif d.priority == 'high' %}warning{% else %}info{% endif %}">{{ d.priority }}</span></td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="3" class="text-muted text-center py-3">Nenhum prazo crítico nos próximos 7 dias</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== PIPELINE ===== -->
+    <div class="tab-pane fade" id="tab-pipeline">
+      <div class="row mb-3">
+        <div class="col-md-3">
+          <div class="small-box bg-primary metric-card">
+            <div class="inner"><h3>{{ metrics.pipeline_total_leads }}</h3><p>Leads no Período</p></div>
+            <div class="icon"><i class="fas fa-users"></i></div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="small-box bg-success metric-card">
+            <div class="inner"><h3>{{ metrics.pipeline_converted }}</h3><p>Convertidos</p></div>
+            <div class="icon"><i class="fas fa-user-check"></i></div>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="small-box bg-info metric-card">
+            <div class="inner"><h3>{{ metrics.pipeline_conversion_rate }}%</h3><p>Taxa de Conversão</p></div>
+            <div class="icon"><i class="fas fa-percentage"></i></div>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col-md-7">
+          <div class="card">
+            <div class="card-header"><h3 class="card-title">Leads por Etapa do Funil</h3></div>
+            <div class="card-body"><div class="chart-container"><canvas id="chart-pipeline-stage"></canvas></div></div>
+          </div>
+        </div>
+        <div class="col-md-5">
+          <div class="card">
+            <div class="card-header"><h3 class="card-title">Valor Estimado por Etapa</h3></div>
+            <div class="card-body p-0">
+              <table class="table table-sm">
+                <thead><tr><th>Etapa</th><th>Qtd</th><th>Valor</th></tr></thead>
+                <tbody>
+                  {% for stage in metrics.pipeline_by_stage %}
+                  <tr>
+                    <td>{{ stage.pipeline_stage|default:"—" }}</td>
+                    <td>{{ stage.count }}</td>
+                    <td>R$ {{ stage.total_value|default:0|floatformat:2 }}</td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="3" class="text-muted text-center py-3">Sem dados de pipeline</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== FINANCEIRO ===== -->
+    <div class="tab-pane fade" id="tab-financeiro">
+      {% if metrics.finance_ok %}
+      <div class="row mb-3">
+        <div class="col-md-4">
+          <div class="small-box bg-success metric-card">
+            <div class="inner"><h3>R$ {{ metrics.revenue_this_month|floatformat:2 }}</h3><p>Receita do Mês</p></div>
+            <div class="icon"><i class="fas fa-arrow-up"></i></div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="small-box bg-danger metric-card">
+            <div class="inner"><h3>R$ {{ metrics.expenses_this_month|floatformat:2 }}</h3><p>Despesas do Mês</p></div>
+            <div class="icon"><i class="fas fa-arrow-down"></i></div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="small-box bg-warning metric-card">
+            <div class="inner"><h3>R$ {{ metrics.pending_invoices_total|floatformat:2 }}</h3><p>A Receber (faturas)</p></div>
+            <div class="icon"><i class="fas fa-file-invoice-dollar"></i></div>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col-md-8">
+          <div class="card">
+            <div class="card-header"><h3 class="card-title">Receita x Despesas (últimos 6 meses)</h3></div>
+            <div class="card-body"><div class="chart-container"><canvas id="chart-finance-monthly"></canvas></div></div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card">
+            <div class="card-header"><h3 class="card-title">Faturas por Status</h3></div>
+            <div class="card-body"><div class="chart-container"><canvas id="chart-invoice-status"></canvas></div></div>
+          </div>
+        </div>
+      </div>
+      {% else %}
+      <div class="alert alert-info">Módulo financeiro não disponível.</div>
+      {% endif %}
+    </div>
+
+    <!-- ===== ALERTAS ===== -->
+    <div class="tab-pane fade" id="tab-alertas">
+      <div class="card">
+        <div class="card-header"><h3 class="card-title"><i class="fas fa-bell mr-2"></i>Itens que precisam de atenção</h3></div>
+        <div class="card-body">
+          {% if metrics.alerts %}
+            {% for alert in metrics.alerts %}
+            <div class="alert-item {{ alert.color }}">
+              <i class="{{ alert.icon }} mr-2"></i>
+              <a href="{{ alert.url }}" class="text-dark">{{ alert.text }}</a>
+            </div>
+            {% endfor %}
+          {% else %}
+          <div class="text-center py-4 text-muted">
+            <i class="fas fa-check-circle fa-3x mb-3 text-success"></i>
+            <p>Sem alertas no momento. Tudo em dia!</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /tab-content -->
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+  const M = {{ metrics_json|safe }};
+  const COLORS = ['#3c8dbc','#00a65a','#f39c12','#dd4b39','#605ca8','#d81b60','#00c0ef','#39cccc','#01ff70'];
+
+  function makeLabels(arr, key) { return arr.map(r => r[key] || '—'); }
+  function makeData(arr, key) { return arr.map(r => r[key] || 0); }
+
+  // ---- Processos por Fase ----
+  const phaseCtx = document.getElementById('chart-process-phase');
+  if (phaseCtx && M.process_by_phase && M.process_by_phase.length) {
+    new Chart(phaseCtx, {
+      type: 'bar',
+      data: {
+        labels: makeLabels(M.process_by_phase, 'phase'),
+        datasets: [{ label: 'Processos', data: makeData(M.process_by_phase, 'count'),
+          backgroundColor: COLORS }]
+      },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } } }
+    });
+  }
+
+  // ---- Processos por Área ----
+  const areaCtx = document.getElementById('chart-process-area');
+  if (areaCtx && M.process_by_area && M.process_by_area.length) {
+    new Chart(areaCtx, {
+      type: 'doughnut',
+      data: {
+        labels: makeLabels(M.process_by_area, 'area'),
+        datasets: [{ data: makeData(M.process_by_area, 'count'), backgroundColor: COLORS }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+
+  // ---- Prazos por Status ----
+  const dlCtx = document.getElementById('chart-deadline-status');
+  if (dlCtx && M.deadline_by_status && M.deadline_by_status.length) {
+    new Chart(dlCtx, {
+      type: 'doughnut',
+      data: {
+        labels: makeLabels(M.deadline_by_status, 'status'),
+        datasets: [{ data: makeData(M.deadline_by_status, 'count'),
+          backgroundColor: ['#f39c12','#00a65a','#dd4b39','#6c757d'] }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+
+  // ---- Pipeline por Etapa ----
+  const pipeCtx = document.getElementById('chart-pipeline-stage');
+  if (pipeCtx && M.pipeline_by_stage && M.pipeline_by_stage.length) {
+    new Chart(pipeCtx, {
+      type: 'bar',
+      data: {
+        labels: makeLabels(M.pipeline_by_stage, 'pipeline_stage'),
+        datasets: [{ label: 'Leads', data: makeData(M.pipeline_by_stage, 'count'),
+          backgroundColor: '#3c8dbc' }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false } } }
+    });
+  }
+
+  // ---- Receita x Despesas por Mês ----
+  const finCtx = document.getElementById('chart-finance-monthly');
+  if (finCtx && M.revenue_months && M.revenue_months.length) {
+    const allMonths = [...new Set([
+      ...M.revenue_months.map(r => r.month),
+      ...M.expense_months.map(r => r.month)
+    ])].sort();
+    const revenueMap = Object.fromEntries(M.revenue_months.map(r => [r.month, r.total]));
+    const expenseMap = Object.fromEntries(M.expense_months.map(r => [r.month, r.total]));
+    new Chart(finCtx, {
+      type: 'line',
+      data: {
+        labels: allMonths,
+        datasets: [
+          { label: 'Receita', data: allMonths.map(m => revenueMap[m] || 0),
+            borderColor: '#00a65a', backgroundColor: 'rgba(0,166,90,.1)', fill: true, tension: .3 },
+          { label: 'Despesas', data: allMonths.map(m => expenseMap[m] || 0),
+            borderColor: '#dd4b39', backgroundColor: 'rgba(221,75,57,.1)', fill: true, tension: .3 }
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+
+  // ---- Faturas por Status ----
+  const invCtx = document.getElementById('chart-invoice-status');
+  if (invCtx && M.invoices_by_status && M.invoices_by_status.length) {
+    new Chart(invCtx, {
+      type: 'doughnut',
+      data: {
+        labels: makeLabels(M.invoices_by_status, 'status'),
+        datasets: [{ data: makeData(M.invoices_by_status, 'count'), backgroundColor: COLORS }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+  }
+
+  // ---- Filtro de período ----
+  document.getElementById('btn-filter').addEventListener('click', function() {
+    const start = document.getElementById('filter-start').value;
+    const end = document.getElementById('filter-end').value;
+    window.location.href = '{% url "portal:relatorios_dashboard" %}?inicio=' + start + '&fim=' + end;
+  });
+
+})());
+</script>
+{% endblock %}

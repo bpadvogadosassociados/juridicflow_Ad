@@ -1,0 +1,106 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Pipeline de Leads | JuridicFlow{% endblock %}
+{% block page_title %}Pipeline de Leads{% endblock %}
+{% block breadcrumb %}Contatos / Pipeline{% endblock %}
+{% block content %}
+
+<div class="mb-3 d-flex justify-content-between align-items-center">
+  <div>
+    <a href="{% url 'portal:contatos' %}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-list mr-1"></i> Lista</a>
+    <a href="{% url 'portal:contatos_dashboard' %}" class="btn btn-outline-secondary btn-sm ml-1"><i class="fas fa-chart-bar mr-1"></i> Dashboard</a>
+    <a href="{% url 'portal:contato_create' %}" class="btn btn-primary btn-sm ml-1"><i class="fas fa-plus mr-1"></i> Novo Contato</a>
+  </div>
+  <span class="text-muted small">Arraste os cards entre as colunas para avançar o lead no funil</span>
+</div>
+
+<div class="pipeline-board d-flex" style="overflow-x: auto; gap: 12px; padding-bottom: 16px; min-height: 70vh;">
+  {% for key, col in board.items %}
+  <div class="pipeline-column card flex-shrink-0" style="width: 240px; min-height: 400px;"
+       data-stage="{{ key }}" ondragover="event.preventDefault()" ondrop="onDrop(event, '{{ key }}')">
+    <div class="card-header py-2" style="background: #f4f6f9;">
+      <h6 class="mb-0">{{ col.label }} <span class="badge badge-secondary float-right">{{ col.customers|length }}</span></h6>
+    </div>
+    <div class="card-body p-2 pipeline-cards" id="col-{{ key }}">
+      {% for c in col.customers %}
+      <div class="card mb-2 shadow-sm pipeline-card" id="card-{{ c.id }}" draggable="true"
+           ondragstart="onDragStart(event, {{ c.id }})" style="cursor: grab;">
+        <div class="card-body p-2">
+          <div class="d-flex justify-content-between align-items-start mb-1">
+            <a href="{% url 'portal:contato_detail' c.id %}" class="font-weight-bold text-dark" style="font-size: 0.875rem;">{{ c.name }}</a>
+            {% if c.status == 'lead' %}<span class="badge badge-info" style="font-size: 0.7rem;">Lead</span>
+            {% elif c.status == 'prospect' %}<span class="badge badge-primary" style="font-size: 0.7rem;">Prospect</span>{% endif %}
+          </div>
+          {% if c.estimated_value %}
+          <div class="text-success small"><i class="fas fa-dollar-sign"></i> R$ {{ c.estimated_value|floatformat:0 }}</div>
+          {% endif %}
+          {% if c.next_action %}
+          <div class="text-muted" style="font-size:0.75rem;"><i class="fas fa-arrow-right mr-1"></i>{{ c.next_action|truncatechars:40 }}</div>
+          {% endif %}
+          {% if c.next_action_date %}
+          <div class="small text-warning"><i class="fas fa-calendar-check mr-1"></i>{{ c.next_action_date|date:"d/m/Y" }}</div>
+          {% endif %}
+          {% if c.responsible %}
+          <div class="text-muted" style="font-size:0.75rem;"><i class="fas fa-user mr-1"></i>{{ c.responsible }}</div>
+          {% endif %}
+        </div>
+      </div>
+      {% empty %}
+      <div class="text-center text-muted py-3" style="font-size:0.8rem;" id="empty-{{ key }}">
+        <i class="fas fa-inbox"></i><br>Nenhum lead
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let draggedId = null;
+
+function onDragStart(event, id) {
+  draggedId = id;
+  event.dataTransfer.effectAllowed = 'move';
+}
+
+async function onDrop(event, stage) {
+  event.preventDefault();
+  if (!draggedId) return;
+
+  const res = await fetch(`/app/contatos/${draggedId}/pipeline/move/`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+    body: JSON.stringify({stage})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    const card = document.getElementById(`card-${draggedId}`);
+    const targetCol = document.getElementById(`col-${stage}`);
+    const emptyMsg = document.getElementById(`empty-${stage}`);
+    if (emptyMsg) emptyMsg.remove();
+    targetCol.appendChild(card);
+    // Update badge counts
+    document.querySelectorAll('.pipeline-column').forEach(col => {
+      const badge = col.querySelector('.badge-secondary');
+      if (badge) badge.textContent = col.querySelectorAll('.pipeline-card').length;
+    });
+    toastr.success('Lead movido para ' + stage.replace('_', ' '));
+  } else {
+    toastr.error('Erro ao mover lead.');
+  }
+  draggedId = null;
+}
+
+function getCsrf() {
+  return document.cookie.split('; ').find(r => r.startsWith('csrftoken=')).split('=')[1];
+}
+</script>
+<style>
+.pipeline-card:active { opacity: 0.8; }
+.pipeline-column[ondragover] { transition: background 0.2s; }
+.pipeline-column:hover { background: #f8f9fa; }
+</style>
+{% endblock %}

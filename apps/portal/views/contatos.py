@@ -190,12 +190,18 @@ def contato_detail(request, customer_id):
         customer=customer, office=request.office
     ).order_by("-created_at")
 
+    # Relacionamentos
+    relationships_from = customer.relationships_from.select_related("to_customer").all()
+    relationships_to = customer.relationships_to.select_related("from_customer").all()
+
     return render(request, "portal/contato_detail.html", {
         "customer": customer,
         "interactions": interactions,
         "documents": documents,
         "process_parties": process_parties,
         "agreements": agreements,
+        "relationships_from": relationships_from,
+        "relationships_to": relationships_to,
         "interaction_type_choices": CustomerInteraction.TYPE_CHOICES,
         "document_type_choices": CustomerDocument.TYPE_CHOICES,
         "active_page": "contatos",
@@ -365,3 +371,170 @@ def contatos_import(request):
         return JsonResponse({"ok": True, "created": created, "errors": errors})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=400)
+
+# ==================== PIPELINE / FUNIL ====================
+
+from apps.customers.models import CustomerRelationship
+
+
+@require_portal_access()
+def contatos_pipeline(request):
+    """Visão Kanban do funil de leads/prospects."""
+    office = request.office
+    base_qs = Customer.objects.filter(
+        office=office, is_deleted=False, status__in=["lead", "prospect"]
+    ).select_related("responsible")
+
+    # Agrupar por etapa
+    stages = Customer.PIPELINE_STAGE_CHOICES
+    board = {}
+    for key, label in stages:
+        board[key] = {
+            "label": label,
+            "customers": list(base_qs.filter(pipeline_stage=key)),
+        }
+    # Sem etapa definida → "novo"
+    unclassified = list(base_qs.filter(pipeline_stage=""))
+    if unclassified:
+        board["novo"]["customers"] = unclassified + board["novo"]["customers"]
+
+    return render(request, "portal/contatos_pipeline.html", {
+        "board": board,
+        "stages": stages,
+        "active_page": "contatos",
+    })
+
+
+@require_portal_json()
+@require_role("intern")
+@require_http_methods(["POST"])
+def contato_pipeline_move(request, customer_id):
+    """Move contato de etapa no funil."""
+    customer = get_object_or_404(
+        Customer, id=customer_id,
+        organization=request.organization, office=request.office, is_deleted=False
+    )
+    payload = parse_json_body(request)
+    stage = payload.get("stage", "")
+    valid_stages = [s[0] for s in Customer.PIPELINE_STAGE_CHOICES]
+    if stage not in valid_stages:
+        return JsonResponse({"error": "Etapa inválida."}, status=400)
+
+    customer.pipeline_stage = stage
+    if stage == "ganho":
+        customer.status = "client"
+    elif stage == "perdido":
+        pass  # mantém status
+    customer.save(update_fields=["pipeline_stage", "status"])
+    return JsonResponse({"ok": True})
+
+
+@require_portal_json()
+@require_role("intern")
+@require_http_methods(["POST"])
+def contato_next_action(request, customer_id):
+    """Atualiza próxima ação do contato."""
+    customer = get_object_or_404(
+        Customer, id=customer_id,
+        organization=request.organization, office=request.office, is_deleted=False
+    )
+    payload = parse_json_body(request)
+    customer.next_action = payload.get("next_action", "").strip()
+    next_action_date = payload.get("next_action_date", "")
+    if next_action_date:
+        from django.utils.dateparse import parse_date as _parse_date
+        customer.next_action_date = _parse_date(next_action_date)
+    customer.save(update_fields=["next_action", "next_action_date"])
+    return JsonResponse({"ok": True})
+
+
+# ==================== RELACIONAMENTOS ====================
+
+@require_portal_json()
+@require_role("intern")
+@require_http_methods(["POST"])
+def contato_relationship_add(request, customer_id):
+    """Adiciona relacionamento entre contatos."""
+    from_customer = get_object_or_404(
+        Customer, id=customer_id,
+        organization=request.organization, office=request.office, is_deleted=False
+    )
+    payload = parse_json_body(request)
+    to_customer_id = payload.get("to_customer_id")
+    relation_type = payload.get("relation_type", "outro")
+
+    if not to_customer_id:
+        return JsonResponse({"error": "Selecione o contato relacionado."}, status=400)
+
+    try:
+        to_customer = Customer.objects.get(
+            id=to_customer_id, organization=request.organization, is_deleted=False
+        )
+    except Customer.DoesNotExist:
+        return JsonResponse({"error": "Contato não encontrado."}, status=404)
+
+    rel, created = CustomerRelationship.objects.get_or_create(
+        from_customer=from_customer,
+        to_customer=to_customer,
+        relation_type=relation_type,
+        defaults={"notes": payload.get("notes", "").strip()},
+    )
+    return JsonResponse({
+        "ok": True,
+        "created": created,
+        "rel": {
+            "id": rel.id,
+            "to_name": to_customer.name,
+            "type": rel.get_relation_type_display(),
+        }
+    })
+
+
+@require_portal_json()
+@require_role("lawyer")
+@require_http_methods(["POST"])
+def contato_relationship_remove(request, customer_id, rel_id):
+    """Remove relacionamento."""
+    get_object_or_404(Customer, id=customer_id, organization=request.organization)
+    rel = get_object_or_404(CustomerRelationship, id=rel_id, from_customer_id=customer_id)
+    rel.delete()
+    return JsonResponse({"ok": True})
+
+
+# ==================== DOCUMENTOS ====================
+
+@require_portal_json()
+@require_role("intern")
+@require_http_methods(["POST"])
+def contato_document_upload(request, customer_id):
+    """Upload de documento do contato."""
+    customer = get_object_or_404(
+        Customer, id=customer_id,
+        organization=request.organization, office=request.office, is_deleted=False
+    )
+    file = request.FILES.get("file")
+    if not file:
+        return JsonResponse({"error": "Nenhum arquivo enviado."}, status=400)
+
+    title = request.POST.get("title", "").strip() or file.name
+    doc_type = request.POST.get("type", "other")
+
+    doc = CustomerDocument.objects.create(
+        organization=request.organization,
+        office=request.office,
+        customer=customer,
+        title=title,
+        type=doc_type,
+        file=file,
+        uploaded_by=request.user,
+    )
+    return JsonResponse({
+        "ok": True,
+        "document": {
+            "id": doc.id,
+            "title": doc.title,
+            "type": doc.get_type_display(),
+            "url": doc.file.url if doc.file else "",
+            "date": doc.created_at.strftime("%d/%m/%Y"),
+        }
+    })

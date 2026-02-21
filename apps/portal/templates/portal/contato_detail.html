@@ -1,116 +1,446 @@
 {% extends "portal/base.html" %}
+{% load static %}
 {% block title %}{{ customer.name }} | JuridicFlow{% endblock %}
 {% block page_title %}{{ customer.name }}{% endblock %}
 {% block breadcrumb %}Contatos / {{ customer.name }}{% endblock %}
 {% block content %}
+
 <div class="row mb-3">
   <div class="col-md-12">
-    <a href="{% url 'portal:contatos' %}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Voltar</a>
-    <a href="{% url 'portal:contato_edit' customer.id %}" class="btn btn-primary"><i class="fas fa-edit"></i> Editar</a>
-    <button class="btn btn-danger" onclick="if(confirm('Deletar?')) {fetch('/app/contatos/{{ customer.id }}/delete/', {method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}}).then(() => window.location.href='{% url "portal:contatos" %}');}"><i class="fas fa-trash"></i> Deletar</button>
+    <a href="{% url 'portal:contatos' %}" class="btn btn-secondary btn-sm"><i class="fas fa-arrow-left"></i> Voltar</a>
+    <a href="{% url 'portal:contato_edit' customer.id %}" class="btn btn-primary btn-sm"><i class="fas fa-edit"></i> Editar</a>
+    <button class="btn btn-danger btn-sm" id="btn-delete-customer"><i class="fas fa-trash"></i> Deletar</button>
   </div>
 </div>
+
 <div class="row">
+  <!-- COL PRINCIPAL -->
   <div class="col-md-8">
+
+    <!-- Dados do Contato -->
     <div class="card">
-      <div class="card-header"><h3 class="card-title"><i class="fas fa-user"></i> Dados do Contato</h3></div>
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-user mr-1"></i> Dados do Contato</h3></div>
       <div class="card-body">
-        <dl class="row">
-          <dt class="col-sm-3">Nome:</dt><dd class="col-sm-9"><strong>{{ customer.name }}</strong></dd>
-          <dt class="col-sm-3">Tipo:</dt><dd class="col-sm-9">{{ customer.get_type_display }}</dd>
-          <dt class="col-sm-3">Status:</dt><dd class="col-sm-9"><span class="badge badge-{% if customer.status == 'client' %}success{% elif customer.status == 'lead' %}warning{% else %}secondary{% endif %}">{{ customer.get_status_display }}</span></dd>
-          {% if customer.document %}<dt class="col-sm-3">CPF/CNPJ:</dt><dd class="col-sm-9">{{ customer.document }}</dd>{% endif %}
-          {% if customer.email %}<dt class="col-sm-3">Email:</dt><dd class="col-sm-9"><a href="mailto:{{ customer.email }}">{{ customer.email }}</a></dd>{% endif %}
-          {% if customer.phone %}<dt class="col-sm-3">Telefone:</dt><dd class="col-sm-9">{{ customer.phone }}</dd>{% endif %}
-          {% if customer.whatsapp %}<dt class="col-sm-3">WhatsApp:</dt><dd class="col-sm-9"><a href="https://wa.me/{{ customer.whatsapp }}" target="_blank">{{ customer.whatsapp }}</a></dd>{% endif %}
-          {% if customer.full_address %}<dt class="col-sm-3">Endereço:</dt><dd class="col-sm-9">{{ customer.full_address }}</dd>{% endif %}
-          {% if customer.tags %}<dt class="col-sm-3">Tags:</dt><dd class="col-sm-9">{% for tag in customer.tag_list %}<span class="badge badge-info">{{ tag }}</span> {% endfor %}</dd>{% endif %}
-        </dl>
+        <div class="row">
+          <div class="col-md-6">
+            <dl class="row mb-0">
+              <dt class="col-sm-4">Nome:</dt><dd class="col-sm-8"><strong>{{ customer.name }}</strong></dd>
+              <dt class="col-sm-4">Tipo:</dt><dd class="col-sm-8">{{ customer.get_type_display }}</dd>
+              <dt class="col-sm-4">Status:</dt>
+              <dd class="col-sm-8">
+                <span class="badge badge-{% if customer.status == 'client' %}success{% elif customer.status == 'lead' %}warning{% elif customer.status == 'prospect' %}info{% else %}secondary{% endif %}">{{ customer.get_status_display }}</span>
+              </dd>
+              {% if customer.document %}<dt class="col-sm-4">CPF/CNPJ:</dt><dd class="col-sm-8">{{ customer.document }}</dd>{% endif %}
+              {% if customer.email %}<dt class="col-sm-4">Email:</dt><dd class="col-sm-8"><a href="mailto:{{ customer.email }}">{{ customer.email }}</a></dd>{% endif %}
+              {% if customer.phone %}<dt class="col-sm-4">Telefone:</dt><dd class="col-sm-8">{{ customer.phone }}</dd>{% endif %}
+              {% if customer.whatsapp %}<dt class="col-sm-4">WhatsApp:</dt><dd class="col-sm-8"><a href="https://wa.me/{{ customer.whatsapp }}" target="_blank">{{ customer.whatsapp }}</a></dd>{% endif %}
+            </dl>
+          </div>
+          <div class="col-md-6">
+            <dl class="row mb-0">
+              {% if customer.full_address %}<dt class="col-sm-4">Endereço:</dt><dd class="col-sm-8">{{ customer.full_address }}</dd>{% endif %}
+              {% if customer.origin %}<dt class="col-sm-4">Origem:</dt><dd class="col-sm-8">{{ customer.get_origin_display }}</dd>{% endif %}
+              {% if customer.birth_date %}<dt class="col-sm-4">Nascimento:</dt><dd class="col-sm-8">{{ customer.birth_date|date:"d/m/Y" }}</dd>{% endif %}
+              {% if customer.profession %}<dt class="col-sm-4">Profissão:</dt><dd class="col-sm-8">{{ customer.profession }}</dd>{% endif %}
+              {% if customer.marital_status %}<dt class="col-sm-4">Est. Civil:</dt><dd class="col-sm-8">{{ customer.marital_status }}</dd>{% endif %}
+              <dt class="col-sm-4">Email:</dt><dd class="col-sm-8">{% if customer.can_email %}<span class="badge badge-success">Aceita</span>{% else %}<span class="badge badge-secondary">Não</span>{% endif %}</dd>
+              <dt class="col-sm-4">WhatsApp:</dt><dd class="col-sm-8">{% if customer.can_whatsapp %}<span class="badge badge-success">Aceita</span>{% else %}<span class="badge badge-secondary">Não</span>{% endif %}</dd>
+            </dl>
+          </div>
+        </div>
+        {% if customer.tags %}
+        <div class="mt-2">
+          {% for tag in customer.tag_list %}<span class="badge badge-light border mr-1">{{ tag }}</span>{% endfor %}
+        </div>
+        {% endif %}
+        {% if customer.notes %}<hr><p class="mb-0 text-muted small"><strong>Observações:</strong> {{ customer.notes }}</p>{% endif %}
       </div>
     </div>
+
+    <!-- Pipeline Info (para leads/prospects) -->
+    {% if customer.status in 'lead,prospect' or customer.pipeline_stage %}
+    <div class="card card-warning card-outline">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-funnel-dollar mr-1"></i> Pipeline CRM</h3>
+        <div class="card-tools">
+          <a href="{% url 'portal:contatos_pipeline' %}" class="btn btn-sm btn-outline-warning">Ver Kanban</a>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-md-4">
+            <label class="small text-muted">Etapa do Funil</label>
+            <div>
+              {% if customer.pipeline_stage %}<span class="badge badge-primary">{{ customer.get_pipeline_stage_display }}</span>
+              {% else %}<span class="text-muted">Não definida</span>{% endif %}
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="small text-muted">Valor Estimado</label>
+            <div>{% if customer.estimated_value %}<strong class="text-success">R$ {{ customer.estimated_value|floatformat:2 }}</strong>{% else %}—{% endif %}</div>
+          </div>
+          <div class="col-md-4">
+            <label class="small text-muted">Próxima Ação</label>
+            <div>{{ customer.next_action|default:"—" }}</div>
+            {% if customer.next_action_date %}<small class="text-warning"><i class="fas fa-calendar mr-1"></i>{{ customer.next_action_date|date:"d/m/Y" }}</small>{% endif %}
+          </div>
+        </div>
+        {% if customer.loss_reason %}
+        <div class="mt-2 alert alert-danger py-1 mb-0"><strong>Motivo da perda:</strong> {{ customer.loss_reason }}</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Interações -->
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">Histórico de Interações</h3>
-        <div class="card-tools"><button class="btn btn-sm btn-primary" onclick="$('#interactionModal').modal('show');"><i class="fas fa-plus"></i> Nova</button></div>
+        <div class="card-tools">
+          <button class="btn btn-sm btn-primary" data-toggle="modal" data-target="#interactionModal"><i class="fas fa-plus"></i> Nova</button>
+        </div>
       </div>
       <div class="card-body p-0">
-        <table class="table">
+        <table class="table table-sm mb-0">
           <tbody>
           {% for i in interactions %}
           <tr>
-            <td><i class="fas fa-{{ i.type }}"></i> {{ i.get_type_display }}</td>
-            <td><strong>{{ i.subject }}</strong><br><small>{{ i.description|truncatewords:15 }}</small></td>
-            <td>{{ i.date|date:"d/m/Y H:i" }}</td>
+            <td width="100"><span class="badge badge-secondary">{{ i.get_type_display }}</span></td>
+            <td><strong>{{ i.subject }}</strong><br><small class="text-muted">{{ i.description|truncatewords:20 }}</small></td>
+            <td width="130"><small>{{ i.date|date:"d/m/Y H:i" }}</small></td>
+            <td width="80"><small>{{ i.created_by|default:"—" }}</small></td>
           </tr>
           {% empty %}
-          <tr><td colspan="3" class="text-center text-muted p-3">Sem interações.</td></tr>
+          <tr><td colspan="4" class="text-center text-muted p-3">Sem interações registradas.</td></tr>
           {% endfor %}
           </tbody>
         </table>
       </div>
     </div>
+
+    <!-- Relacionamentos -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-link mr-1"></i> Relacionamentos</h3>
+        <div class="card-tools">
+          <button class="btn btn-sm btn-primary" data-toggle="modal" data-target="#modalAddRelationship"><i class="fas fa-plus"></i> Adicionar</button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0" id="rel-table">
+          <tbody id="rel-tbody">
+            {% for rel in relationships_from %}
+            <tr id="rel-row-{{ rel.id }}">
+              <td><a href="{% url 'portal:contato_detail' rel.to_customer.id %}">{{ rel.to_customer.name }}</a></td>
+              <td><span class="badge badge-info">{{ rel.get_relation_type_display }}</span></td>
+              <td>{{ rel.notes }}</td>
+              <td class="text-right">
+                <button class="btn btn-xs btn-outline-danger btn-remove-rel" data-id="{{ rel.id }}"><i class="fas fa-times"></i></button>
+              </td>
+            </tr>
+            {% for rel2 in relationships_to %}
+            {% empty %}
+            {% endfor %}
+            {% empty %}
+            <tr id="rel-empty"><td colspan="4" class="text-center text-muted p-3">Nenhum relacionamento cadastrado.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Documentos -->
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-paperclip mr-1"></i> Documentos</h3>
+        <div class="card-tools">
+          <button class="btn btn-sm btn-primary" data-toggle="modal" data-target="#modalUploadDoc"><i class="fas fa-upload"></i> Upload</button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0" id="docs-table">
+          <tbody>
+          {% for doc in documents %}
+          <tr>
+            <td><i class="far fa-file-alt text-info mr-1"></i><a href="{{ doc.file.url }}" target="_blank">{{ doc.title }}</a></td>
+            <td><span class="badge badge-secondary">{{ doc.get_type_display }}</span></td>
+            <td><small>{{ doc.created_at|date:"d/m/Y" }}</small></td>
+          </tr>
+          {% empty %}
+          <tr id="docs-empty"><td colspan="3" class="text-center text-muted p-3">Sem documentos.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
+
+  <!-- COL LATERAL -->
   <div class="col-md-4">
     <div class="card card-primary">
       <div class="card-header"><h3 class="card-title">Resumo</h3></div>
       <div class="card-body">
-        <dl>
-          <dt>Origem</dt><dd>{{ customer.get_origin_display }}</dd>
+        <dl class="mb-0">
           <dt>Processos</dt><dd>{{ process_parties.count }}</dd>
           <dt>Contratos</dt><dd>{{ agreements.count }}</dd>
           <dt>Cadastrado em</dt><dd>{{ customer.created_at|date:"d/m/Y" }}</dd>
-          {% if customer.responsible %}<dt>Responsável</dt><dd>{% if customer.responsible.get_full_name %}{{ customer.responsible.get_full_name }}{% else %}{{ customer.responsible.email }}{% endif %}</dd>{% endif %}
+          {% if customer.first_contact_date %}<dt>Primeiro Contato</dt><dd>{{ customer.first_contact_date|date:"d/m/Y" }}</dd>{% endif %}
+          {% if customer.last_interaction_date %}<dt>Última Interação</dt><dd>{{ customer.last_interaction_date|date:"d/m/Y" }}</dd>{% endif %}
+          {% if customer.responsible %}<dt>Responsável</dt><dd>{{ customer.responsible }}</dd>{% endif %}
         </dl>
       </div>
     </div>
+
     <div class="card">
       <div class="card-header"><h3 class="card-title">Processos Vinculados</h3></div>
       <div class="card-body p-0">
         <ul class="list-group list-group-flush">
         {% for pp in process_parties %}
-          <li class="list-group-item"><a href="{% url 'portal:processo_detail' pp.process.id %}">{{ pp.process.number }}</a><br><small>{{ pp.get_role_display }}</small></li>
+          <li class="list-group-item py-2">
+            <a href="{% url 'portal:processo_detail' pp.process.id %}">{{ pp.process.number }}</a>
+            <br><small class="text-muted">{{ pp.get_role_display }} — {{ pp.process.subject|truncatechars:30 }}</small>
+          </li>
         {% empty %}
           <li class="list-group-item text-muted">Nenhum processo.</li>
         {% endfor %}
         </ul>
       </div>
     </div>
+
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Contratos</h3></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+        {% for ag in agreements %}
+          <li class="list-group-item py-2">
+            <a href="{% url 'portal:financeiro_contrato_detail' ag.id %}">{{ ag.title|truncatechars:35 }}</a>
+            <br><small class="text-muted">R$ {{ ag.amount|floatformat:2 }} — {{ ag.get_status_display }}</small>
+          </li>
+        {% empty %}
+          <li class="list-group-item text-muted">Nenhum contrato.</li>
+        {% endfor %}
+        </ul>
+      </div>
+    </div>
+
   </div>
 </div>
-<div class="modal fade" id="interactionModal">
+
+<!-- ==================== MODAIS ==================== -->
+
+<!-- Modal: Nova Interação -->
+<div class="modal fade" id="interactionModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title">Nova Interação</h5><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button></div>
+      <div class="modal-header"><h5 class="modal-title">Nova Interação</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
       <div class="modal-body">
-        <form id="interaction-form" onsubmit="return saveInteraction(event);">
-          <div class="form-group"><label>Tipo</label><select class="form-control" id="int-type">{% for v, l in interaction_type_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select></div>
-          <div class="row"><div class="col-md-6"><div class="form-group"><label>Data</label><input type="date" class="form-control" id="int-date" required></div></div><div class="col-md-6"><div class="form-group"><label>Hora</label><input type="time" class="form-control" id="int-time" required></div></div></div>
-          <div class="form-group"><label>Assunto</label><input type="text" class="form-control" id="int-subject" required></div>
-          <div class="form-group"><label>Descrição</label><textarea class="form-control" id="int-description" rows="3" required></textarea></div>
-          <button type="submit" class="btn btn-primary">Salvar</button>
-        </form>
+        <div class="form-group">
+          <label>Tipo</label>
+          <select class="form-control" id="int-type">
+            {% for v, l in interaction_type_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="col"><div class="form-group"><label>Data</label><input type="date" class="form-control" id="int-date" required></div></div>
+          <div class="col"><div class="form-group"><label>Hora</label><input type="time" class="form-control" id="int-time" value="12:00"></div></div>
+        </div>
+        <div class="form-group"><label>Assunto</label><input type="text" class="form-control" id="int-subject" required></div>
+        <div class="form-group"><label>Descrição</label><textarea class="form-control" id="int-description" rows="3"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-interaction">Salvar</button>
       </div>
     </div>
   </div>
 </div>
+
+<!-- Modal: Relacionamento -->
+<div class="modal fade" id="modalAddRelationship" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Adicionar Relacionamento</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Buscar Contato</label>
+          <input type="text" id="rel-search-input" class="form-control" placeholder="Nome, CPF/CNPJ ou email...">
+          <div id="rel-search-results" class="list-group mt-1" style="display:none;"></div>
+          <input type="hidden" id="rel-to-id">
+          <div id="rel-selected" class="alert alert-success mt-1 py-1" style="display:none;"></div>
+        </div>
+        <div class="form-group">
+          <label>Tipo de Relação</label>
+          <select id="rel-type" class="form-control">
+            <option value="socio">Sócio(a)</option>
+            <option value="representante">Representante Legal</option>
+            <option value="conjuge">Cônjuge</option>
+            <option value="dependente">Dependente</option>
+            <option value="testemunha">Testemunha</option>
+            <option value="indicador">Indicador</option>
+            <option value="outro">Outro</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Observações</label>
+          <input type="text" id="rel-notes" class="form-control" placeholder="Opcional">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-rel">Adicionar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Upload Documento -->
+<div class="modal fade" id="modalUploadDoc" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Upload de Documento</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="cust-doc-type" class="form-control">
+            {% for v, l in document_type_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group"><label>Título</label><input type="text" id="cust-doc-title" class="form-control" placeholder="Deixe em branco para usar o nome do arquivo"></div>
+        <div class="form-group"><label>Arquivo *</label><input type="file" id="cust-doc-file" class="form-control-file"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" id="btn-upload-doc">Upload</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
+
 {% block extra_js %}
 <script>
-function saveInteraction(e) {
-  e.preventDefault();
-  fetch('/app/contatos/{{ customer.id }}/interaction/', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
-    body: JSON.stringify({
-      type: document.getElementById('int-type').value,
-      date: document.getElementById('int-date').value,
-      time: document.getElementById('int-time').value,
-      subject: document.getElementById('int-subject').value,
-      description: document.getElementById('int-description').value
-    })
-  }).then(() => {$('#interactionModal').modal('hide'); window.location.reload();});
-  return false;
+const CUSTOMER_ID = {{ customer.id }};
+
+function csrf() {
+  return document.cookie.split('; ').find(r => r.startsWith('csrftoken=')).split('=')[1];
 }
-function getCookie(name) {let cookieValue = null; if (document.cookie) {const cookies = document.cookie.split(';'); for (let i = 0; i < cookies.length; i++) {const cookie = cookies[i].trim(); if (cookie.substring(0, name.length + 1) === (name + '=')) {cookieValue = decodeURIComponent(cookie.substring(name.length + 1)); break;}}} return cookieValue;}
+async function postJSON(url, data) {
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf()}, body:JSON.stringify(data)});
+  return r.json();
+}
+
+// ---- INTERAÇÃO ----
+document.getElementById('btn-save-interaction').addEventListener('click', async () => {
+  const res = await postJSON(`/app/contatos/${CUSTOMER_ID}/interaction/`, {
+    type: document.getElementById('int-type').value,
+    date: document.getElementById('int-date').value,
+    time: document.getElementById('int-time').value,
+    subject: document.getElementById('int-subject').value,
+    description: document.getElementById('int-description').value,
+  });
+  if (res.ok) {
+    $('#interactionModal').modal('hide');
+    toastr.success('Interação registrada!');
+    setTimeout(() => location.reload(), 800);
+  } else toastr.error(res.error || 'Erro.');
+});
+
+// ---- BUSCA CONTATOS (RELACIONAMENTO) ----
+let relTimer;
+document.getElementById('rel-search-input').addEventListener('input', function() {
+  clearTimeout(relTimer);
+  const q = this.value.trim();
+  if (q.length < 2) { document.getElementById('rel-search-results').style.display='none'; return; }
+  relTimer = setTimeout(async () => {
+    const res = await fetch(`/app/api/processos/buscar-contatos/?q=${encodeURIComponent(q)}`, {headers:{'X-CSRFToken':csrf()}});
+    const data = await res.json();
+    const container = document.getElementById('rel-search-results');
+    container.innerHTML = '';
+    (data.results || []).forEach(c => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'list-group-item list-group-item-action py-1';
+      btn.textContent = c.text + (c.document ? ` (${c.document})` : '');
+      btn.addEventListener('click', () => {
+        document.getElementById('rel-to-id').value = c.id;
+        const sel = document.getElementById('rel-selected');
+        sel.textContent = '✓ ' + c.text;
+        sel.style.display = 'block';
+        container.style.display = 'none';
+      });
+      container.appendChild(btn);
+    });
+    container.style.display = 'block';
+  }, 300);
+});
+
+// ---- SALVAR RELACIONAMENTO ----
+document.getElementById('btn-save-rel').addEventListener('click', async () => {
+  const toId = document.getElementById('rel-to-id').value;
+  if (!toId) { toastr.warning('Selecione um contato.'); return; }
+  const res = await postJSON(`/app/contatos/${CUSTOMER_ID}/relationship/add/`, {
+    to_customer_id: toId,
+    relation_type: document.getElementById('rel-type').value,
+    notes: document.getElementById('rel-notes').value,
+  });
+  if (res.ok && res.created) {
+    const emptyEl = document.getElementById('rel-empty');
+    if (emptyEl) emptyEl.remove();
+    const r = res.rel;
+    const row = document.createElement('tr');
+    row.id = 'rel-row-' + r.id;
+    row.innerHTML = `<td>${r.to_name}</td><td><span class="badge badge-info">${r.type}</span></td><td></td>
+      <td class="text-right"><button class="btn btn-xs btn-outline-danger btn-remove-rel" data-id="${r.id}"><i class="fas fa-times"></i></button></td>`;
+    document.getElementById('rel-tbody').appendChild(row);
+    attachRemoveRel(row.querySelector('.btn-remove-rel'));
+    $('#modalAddRelationship').modal('hide');
+    toastr.success('Relacionamento adicionado!');
+  } else if (!res.created) {
+    toastr.warning('Relacionamento já existe.');
+  } else toastr.error(res.error || 'Erro.');
+});
+
+function attachRemoveRel(btn) {
+  btn.addEventListener('click', async function() {
+    if (!confirm('Remover relacionamento?')) return;
+    const id = this.dataset.id;
+    const res = await postJSON(`/app/contatos/${CUSTOMER_ID}/relationship/${id}/remove/`, {});
+    if (res.ok) document.getElementById('rel-row-' + id).remove();
+  });
+}
+document.querySelectorAll('.btn-remove-rel').forEach(attachRemoveRel);
+
+// ---- UPLOAD DOCUMENTO ----
+document.getElementById('btn-upload-doc').addEventListener('click', async () => {
+  const file = document.getElementById('cust-doc-file').files[0];
+  if (!file) { toastr.warning('Selecione um arquivo.'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('title', document.getElementById('cust-doc-title').value.trim());
+  fd.append('type', document.getElementById('cust-doc-type').value);
+  const r = await fetch(`/app/contatos/${CUSTOMER_ID}/documento/upload/`, {method:'POST', body:fd, headers:{'X-CSRFToken':csrf()}});
+  const res = await r.json();
+  if (res.ok) {
+    const d = res.document;
+    const emptyEl = document.getElementById('docs-empty');
+    if (emptyEl) emptyEl.remove();
+    const row = document.createElement('tr');
+    row.innerHTML = `<td><i class="far fa-file-alt text-info mr-1"></i><a href="${d.url}" target="_blank">${d.title}</a></td>
+      <td><span class="badge badge-secondary">${d.type}</span></td><td><small>${d.date}</small></td>`;
+    document.getElementById('docs-table').querySelector('tbody').prepend(row);
+    $('#modalUploadDoc').modal('hide');
+    toastr.success('Documento enviado!');
+  } else toastr.error(res.error || 'Erro no upload.');
+});
+
+// ---- DELETAR CONTATO ----
+document.getElementById('btn-delete-customer').addEventListener('click', async () => {
+  if (!confirm('Deletar este contato permanentemente?')) return;
+  const res = await postJSON('/app/contatos/{{ customer.id }}/delete/', {});
+  if (res.ok) window.location.href = "{% url 'portal:contatos' %}";
+  else toastr.error('Erro ao deletar.');
+});
 </script>
 {% endblock %}

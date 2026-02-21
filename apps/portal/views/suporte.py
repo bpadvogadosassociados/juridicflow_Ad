@@ -1,13 +1,8 @@
 """
-Views de Suporte e Chat — CORRIGIDO para os models reais.
-
-Campos reais:
-  ChatThread: organization, office, type, title, created_by, created_at
-    (SEM: participants M2M, updated_at — usa ChatMember para membros)
-  ChatMember: thread, user, joined_at
-  ChatMessage: thread, sender (não author), body (não text), created_at
+Views de Suporte e Chat.
 """
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
 from django.views.decorators.http import require_http_methods
@@ -16,6 +11,8 @@ from apps.portal.models import SupportTicket, ChatThread, ChatMember, ChatMessag
 from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.forms import SupportTicketForm
 from apps.portal.views._helpers import parse_json_body, log_activity
+
+User = get_user_model()
 
 
 # ==================== SUPORTE ====================
@@ -64,7 +61,6 @@ def support_inbox(request):
 
 @require_portal_json()
 def chat_threads(request):
-    # Busca threads onde o user é membro via ChatMember
     member_thread_ids = ChatMember.objects.filter(
         user=request.user
     ).values_list("thread_id", flat=True)
@@ -78,15 +74,18 @@ def chat_threads(request):
     data = []
     for thread in threads:
         last_msg = thread.messages.order_by("-created_at").first()
+        # Unread count for this user in this thread
+        unread = 0  # placeholder — add read-tracking if needed
         data.append({
             "id": thread.id,
-            "title": thread.title or "",
+            "title": thread.title or "Conversa",
             "type": thread.type,
-            "last_message": last_msg.body[:100] if last_msg else "",
+            "last_message": last_msg.body[:80] if last_msg else "",
             "last_message_at": last_msg.created_at.isoformat() if last_msg else None,
+            "unread": unread,
         })
 
-    return JsonResponse({"threads": data})
+    return JsonResponse({"items": data})
 
 
 @require_portal_json()
@@ -94,8 +93,12 @@ def chat_threads(request):
 def chat_thread_create(request):
     payload = parse_json_body(request)
     title = payload.get("title", "").strip()
-    thread_type = payload.get("type", "direct")
+    thread_type = payload.get("type", "group")
     participant_ids = payload.get("participant_ids", [])
+    emails = payload.get("emails", [])
+
+    if not title:
+        return JsonResponse({"error": "Título obrigatório"}, status=400)
 
     thread = ChatThread.objects.create(
         organization=request.organization,
@@ -105,26 +108,44 @@ def chat_thread_create(request):
         created_by=request.user,
     )
 
-    # Adiciona o criador como membro
+    # Adiciona criador
     ChatMember.objects.create(thread=thread, user=request.user)
 
-    # Adiciona outros participantes
+    # Participantes por IDs
     if participant_ids:
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
         for user in User.objects.filter(id__in=participant_ids):
             ChatMember.objects.get_or_create(thread=thread, user=user)
 
-    return JsonResponse({"ok": True, "thread_id": thread.id})
+    # Participantes por emails (mesmo office)
+    if emails:
+        from apps.memberships.models import Membership
+        office_user_ids = Membership.objects.filter(
+            office=request.office,
+            organization=request.organization,
+            is_active=True,
+        ).values_list("user_id", flat=True)
+
+        email_list = [e.strip() for e in emails if e.strip()]
+        for user in User.objects.filter(
+            email__in=email_list, id__in=office_user_ids
+        ):
+            ChatMember.objects.get_or_create(thread=thread, user=user)
+
+    return JsonResponse({
+        "ok": True,
+        "thread": {
+            "id": thread.id,
+            "title": thread.title,
+            "type": thread.type,
+        }
+    })
 
 
 @require_portal_json()
 def chat_messages(request, thread_id):
-    # Valida que user é membro da thread
     is_member = ChatMember.objects.filter(
         thread_id=thread_id, user=request.user
     ).exists()
-
     if not is_member:
         return JsonResponse({"error": "Não é membro desta conversa"}, status=403)
 
@@ -149,13 +170,12 @@ def chat_messages(request, thread_id):
         for m in msgs
     ]
 
-    return JsonResponse({"messages": data})
+    return JsonResponse({"items": data, "thread_title": thread.title or "Conversa"})
 
 
 @require_portal_json()
 @require_http_methods(["POST"])
 def chat_send(request, thread_id):
-    # Valida que user é membro
     is_member = ChatMember.objects.filter(
         thread_id=thread_id, user=request.user
     ).exists()
@@ -188,5 +208,39 @@ def chat_send(request, thread_id):
             "body": msg.body,
             "sender": request.user.get_full_name() or request.user.email,
             "created_at": msg.created_at.isoformat(),
+            "is_mine": True,
         },
+    })
+
+
+@require_portal_json()
+def chat_users_search(request):
+    """Autocomplete de usuários do office para o modal de nova conversa."""
+    q = request.GET.get("q", "").strip()
+    if len(q) < 2:
+        return JsonResponse({"items": []})
+
+    from apps.memberships.models import Membership
+    from django.db.models import Q as DQ
+    office_user_ids = Membership.objects.filter(
+        office=request.office,
+        organization=request.organization,
+        is_active=True,
+    ).values_list("user_id", flat=True)
+
+    users = User.objects.filter(
+        id__in=office_user_ids
+    ).filter(
+        DQ(email__icontains=q) | DQ(first_name__icontains=q) | DQ(last_name__icontains=q)
+    ).exclude(id=request.user.id)[:10]
+
+    return JsonResponse({
+        "items": [
+            {
+                "id": u.id,
+                "email": u.email,
+                "name": u.get_full_name() or u.email,
+            }
+            for u in users
+        ]
     })

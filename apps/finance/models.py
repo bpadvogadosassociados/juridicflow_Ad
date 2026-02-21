@@ -386,3 +386,69 @@ class Expense(OrganizationScopedModel):
 
     def __str__(self):
         return f"{self.title} - R$ {self.amount}"
+
+class Proposal(OrganizationScopedModel):
+    """Proposta comercial / pré-contrato de honorários."""
+    STATUS_CHOICES = [
+        ("draft", "Rascunho"),
+        ("sent", "Enviada"),
+        ("accepted", "Aceita"),
+        ("rejected", "Rejeitada"),
+        ("expired", "Expirada"),
+    ]
+
+    title = models.CharField("Título", max_length=255)
+    description = models.TextField("Escopo / Descrição", blank=True)
+    amount = models.DecimalField(
+        "Valor Total", max_digits=12, decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))]
+    )
+    status = models.CharField("Status", max_length=20, choices=STATUS_CHOICES, default="draft")
+    issue_date = models.DateField("Data de Emissão", null=True, blank=True)
+    valid_until = models.DateField("Válida até", null=True, blank=True)
+
+    customer = models.ForeignKey(
+        "customers.Customer", on_delete=models.CASCADE,
+        related_name="proposals", verbose_name="Cliente"
+    )
+    process = models.ForeignKey(
+        "processes.Process", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="proposals", verbose_name="Processo"
+    )
+    responsible = models.ForeignKey(
+        "accounts.User", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="proposals", verbose_name="Responsável"
+    )
+
+    notes = models.TextField("Observações", blank=True)
+    pdf_file = models.FileField("PDF", upload_to="proposals/", null=True, blank=True)
+
+    objects = OrganizationScopedManager()
+
+    class Meta:
+        verbose_name = "Proposta"
+        verbose_name_plural = "Propostas"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["organization", "office", "status"]),
+            models.Index(fields=["customer", "status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.title} - {self.customer.name}"
+
+    def convert_to_agreement(self):
+        """Converte proposta aceita em FeeAgreement."""
+        if self.status != "accepted":
+            raise ValueError("Apenas propostas aceitas podem ser convertidas.")
+        return FeeAgreement.objects.create(
+            organization=self.organization,
+            office=self.office,
+            customer=self.customer,
+            process=self.process,
+            title=self.title,
+            description=self.description,
+            amount=self.amount,
+            responsible=self.responsible,
+            status="active",
+        )

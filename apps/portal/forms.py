@@ -67,6 +67,9 @@ class CustomerForm(forms.ModelForm):
             "company_name", "state_registration", "municipal_registration",
             "origin", "referral_name", "tags",
             "notes", "internal_notes",
+            "pipeline_stage", "next_action", "next_action_date",
+            "estimated_value", "loss_reason",
+            "can_whatsapp", "can_email", "lgpd_consent_date",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control", "placeholder": "Nome completo ou Razão Social"}),
@@ -96,6 +99,12 @@ class CustomerForm(forms.ModelForm):
             "tags": forms.TextInput(attrs={"class": "form-control", "placeholder": "vip, urgente, trabalhista"}),
             "notes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "internal_notes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "pipeline_stage": forms.Select(attrs={"class": "form-control"}),
+            "next_action": forms.TextInput(attrs={"class": "form-control", "placeholder": "Próxima ação a tomar"}),
+            "next_action_date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+            "estimated_value": forms.NumberInput(attrs={"class": "form-control", "step": "0.01"}),
+            "loss_reason": forms.TextInput(attrs={"class": "form-control"}),
+            "lgpd_consent_date": forms.DateInput(attrs={"class": "form-control", "type": "date"}),
         }
 
     def clean_name(self):

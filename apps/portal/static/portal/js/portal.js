@@ -452,7 +452,7 @@
         .map((s) => s.trim())
         .filter(Boolean);
 
-      const { ok, status, data } = await apiFetch("/app/api/chat/threads/create/", {
+      const { ok, status, data } = await apiFetch("/app/api/chat/thread/create/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: title || "Equipe", emails })

@@ -128,3 +128,134 @@ def connect_all_signals():
 
 # Auto-conecta ao importar (funciona porque ready() importa este módulo)
 connect_all_signals()
+
+# ======================================================
+# 5. Notificações automáticas
+# ======================================================
+
+def _connect_notification_signals():
+    from apps.processes.models import Process
+    from apps.deadlines.models import Deadline
+    from apps.portal.models import Task
+    from apps.portal.notifications import notify, notify_responsible_and_admins
+
+    @receiver(post_save, sender=Process)
+    def notify_on_process_create(sender, instance, created, **kwargs):
+        if not created:
+            return
+        try:
+            responsible = getattr(instance, "responsible", None)
+            notify_responsible_and_admins(
+                responsible_user=responsible,
+                organization=instance.organization,
+                office=instance.office,
+                title=f"Novo processo: {instance.number or instance.subject or 'sem número'}",
+                message=f"Um novo processo foi criado no sistema.",
+                notif_type="info",
+                url=f"/app/processos/{instance.pk}/",
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger("apps.portal").warning("Notify process: %s", exc)
+
+    @receiver(post_save, sender=Deadline)
+    def notify_on_deadline_create(sender, instance, created, **kwargs):
+        if not created:
+            return
+        try:
+            from django.utils import timezone
+            import datetime
+            days_until = (instance.due_date - timezone.now().date()).days if instance.due_date else 999
+            notif_type = "deadline" if days_until <= 3 else "info"
+            responsible = getattr(instance, "responsible", None)
+            notify_responsible_and_admins(
+                responsible_user=responsible,
+                organization=instance.organization,
+                office=instance.office,
+                title=f"Prazo: {instance.title}",
+                message=f"Vencimento: {instance.due_date.strftime('%d/%m/%Y') if instance.due_date else 'sem data'}",
+                notif_type=notif_type,
+                url="/app/prazos/",
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger("apps.portal").warning("Notify deadline: %s", exc)
+
+    @receiver(post_save, sender=Task)
+    def notify_on_task_create(sender, instance, created, **kwargs):
+        if not created:
+            return
+        try:
+            assigned = getattr(instance, "assigned_to", None)
+            if assigned:
+                notify(
+                    users=[assigned],
+                    organization=instance.organization,
+                    office=instance.office,
+                    title=f"Nova tarefa: {instance.title}",
+                    message=f"Uma tarefa foi atribuída a você.",
+                    notif_type="task",
+                    url="/app/tarefas/",
+                )
+        except Exception as exc:
+            import logging
+            logging.getLogger("apps.portal").warning("Notify task: %s", exc)
+
+    def _connect_finance_notification():
+        try:
+            from apps.finance.models import Invoice, FeeAgreement
+            from apps.portal.notifications import notify_responsible_and_admins
+
+            @receiver(post_save, sender=Invoice)
+            def notify_on_invoice_create(sender, instance, created, **kwargs):
+                if not created:
+                    return
+                try:
+                    notify_responsible_and_admins(
+                        responsible_user=None,
+                        organization=instance.organization,
+                        office=instance.office,
+                        title=f"Nova fatura criada",
+                        message=f"Fatura de R$ {instance.amount:.2f} para {instance.agreement.customer.name if instance.agreement and instance.agreement.customer else 'cliente'}.",
+                        notif_type="info",
+                        url="/app/financeiro/faturas/",
+                    )
+                except Exception as exc:
+                    import logging
+                    logging.getLogger("apps.portal").warning("Notify invoice: %s", exc)
+
+            @receiver(post_save, sender=FeeAgreement)
+            def notify_on_agreement_status(sender, instance, created, **kwargs):
+                if created:
+                    return
+                try:
+                    if instance.status in ("completed", "cancelled"):
+                        status_label = "concluído" if instance.status == "completed" else "cancelado"
+                        notify_responsible_and_admins(
+                            responsible_user=None,
+                            organization=instance.organization,
+                            office=instance.office,
+                            title=f"Contrato {status_label}",
+                            message=f"O contrato de {instance.customer.name if instance.customer else 'cliente'} foi {status_label}.",
+                            notif_type="warning" if instance.status == "cancelled" else "success",
+                            url=f"/app/financeiro/contratos/{instance.pk}/",
+                        )
+                except Exception as exc:
+                    import logging
+                    logging.getLogger("apps.portal").warning("Notify agreement: %s", exc)
+        except Exception:
+            pass
+
+    _connect_finance_notification()
+
+
+connect_all_signals_original = connect_all_signals
+
+
+def connect_all_signals():
+    connect_all_signals_original()
+    _connect_notification_signals()
+
+
+# Re-run including notifications
+_connect_notification_signals()

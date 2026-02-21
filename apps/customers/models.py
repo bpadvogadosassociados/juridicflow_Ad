@@ -103,6 +103,31 @@ class Customer(OrganizationScopedModel, SoftDeleteModel):
     first_contact_date = models.DateField("Data do Primeiro Contato", null=True, blank=True)
     last_interaction_date = models.DateField("Última Interação", null=True, blank=True)
 
+    # Pipeline / CRM
+    PIPELINE_STAGE_CHOICES = [
+        ("novo", "Novo"),
+        ("contato_feito", "Contato Feito"),
+        ("reuniao_marcada", "Reunião Marcada"),
+        ("proposta_enviada", "Proposta Enviada"),
+        ("em_negociacao", "Em Negociação"),
+        ("ganho", "Ganho"),
+        ("perdido", "Perdido"),
+    ]
+    pipeline_stage = models.CharField(
+        "Etapa do Funil", max_length=30, choices=PIPELINE_STAGE_CHOICES, blank=True
+    )
+    next_action = models.CharField("Próxima Ação", max_length=500, blank=True)
+    next_action_date = models.DateField("Data da Próxima Ação", null=True, blank=True)
+    estimated_value = models.DecimalField(
+        "Valor Estimado (R$)", max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text="Previsão de honorários ou valor de causa"
+    )
+    loss_reason = models.CharField("Motivo da Perda", max_length=500, blank=True)
+    # LGPD
+    can_whatsapp = models.BooleanField("Aceita WhatsApp", default=True)
+    can_email = models.BooleanField("Aceita Email", default=True)
+    lgpd_consent_date = models.DateField("Data do Consentimento LGPD", null=True, blank=True)
+
     objects = OrganizationScopedManager()
 
     class Meta:
@@ -242,3 +267,37 @@ class CustomerDocument(OrganizationScopedModel):
     
     def __str__(self):
         return f"{self.title} - {self.customer.name}"
+
+class CustomerRelationship(models.Model):
+    """Relacionamentos entre contatos (sócio, cônjuge, representante, etc.)."""
+    RELATION_CHOICES = [
+        ("socio", "Sócio(a)"),
+        ("representante", "Representante Legal"),
+        ("conjuge", "Cônjuge"),
+        ("dependente", "Dependente"),
+        ("testemunha", "Testemunha"),
+        ("indicador", "Indicador"),
+        ("outro", "Outro"),
+    ]
+
+    from_customer = models.ForeignKey(
+        Customer, on_delete=models.CASCADE,
+        related_name="relationships_from",
+        verbose_name="Contato"
+    )
+    to_customer = models.ForeignKey(
+        Customer, on_delete=models.CASCADE,
+        related_name="relationships_to",
+        verbose_name="Relacionado com"
+    )
+    relation_type = models.CharField("Tipo de Relação", max_length=30, choices=RELATION_CHOICES)
+    notes = models.CharField("Observações", max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("from_customer", "to_customer", "relation_type")]
+        verbose_name = "Relacionamento"
+        verbose_name_plural = "Relacionamentos"
+
+    def __str__(self):
+        return f"{self.from_customer.name} → {self.get_relation_type_display()} → {self.to_customer.name}"

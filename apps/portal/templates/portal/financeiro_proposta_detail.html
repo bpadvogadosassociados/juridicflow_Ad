@@ -1,0 +1,120 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}{{ proposal.title }} | JuridicFlow{% endblock %}
+{% block page_title %}{{ proposal.title }}{% endblock %}
+{% block breadcrumb %}Financeiro / Propostas / {{ proposal.title }}{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-md-8">
+    <div class="card card-primary card-outline">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title"><i class="fas fa-file-contract mr-1"></i> Detalhes da Proposta</h3>
+        <div>
+          {% if proposal.status == 'draft' %}
+          <button class="btn btn-sm btn-info" onclick="changeStatus('sent')">Marcar como Enviada</button>
+          {% endif %}
+          {% if proposal.status == 'sent' %}
+          <button class="btn btn-sm btn-success" onclick="changeStatus('accepted')">Aceitar</button>
+          <button class="btn btn-sm btn-danger ml-1" onclick="changeStatus('rejected')">Rejeitar</button>
+          {% endif %}
+          {% if proposal.status == 'accepted' %}
+          <button class="btn btn-sm btn-primary" id="btn-converter">Converter em Contrato</button>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-body">
+        <dl class="row">
+          <dt class="col-sm-3">Título:</dt><dd class="col-sm-9">{{ proposal.title }}</dd>
+          <dt class="col-sm-3">Cliente:</dt>
+          <dd class="col-sm-9"><a href="{% url 'portal:contato_detail' proposal.customer.id %}">{{ proposal.customer.name }}</a></dd>
+          {% if proposal.process %}
+          <dt class="col-sm-3">Processo:</dt>
+          <dd class="col-sm-9"><a href="{% url 'portal:processo_detail' proposal.process.id %}">{{ proposal.process.number }}</a></dd>
+          {% endif %}
+          <dt class="col-sm-3">Valor Total:</dt><dd class="col-sm-9"><strong class="text-success">R$ {{ proposal.amount|floatformat:2 }}</strong></dd>
+          <dt class="col-sm-3">Status:</dt>
+          <dd class="col-sm-9">
+            {% if proposal.status == 'draft' %}<span class="badge badge-secondary">Rascunho</span>
+            {% elif proposal.status == 'sent' %}<span class="badge badge-info">Enviada</span>
+            {% elif proposal.status == 'accepted' %}<span class="badge badge-success">Aceita</span>
+            {% elif proposal.status == 'rejected' %}<span class="badge badge-danger">Rejeitada</span>
+            {% elif proposal.status == 'expired' %}<span class="badge badge-warning">Expirada</span>
+            {% endif %}
+          </dd>
+          <dt class="col-sm-3">Emissão:</dt><dd class="col-sm-9">{{ proposal.issue_date|date:"d/m/Y"|default:"—" }}</dd>
+          <dt class="col-sm-3">Validade:</dt><dd class="col-sm-9">{{ proposal.valid_until|date:"d/m/Y"|default:"—" }}</dd>
+          <dt class="col-sm-3">Responsável:</dt><dd class="col-sm-9">{{ proposal.responsible|default:"—" }}</dd>
+        </dl>
+        {% if proposal.description %}
+        <hr>
+        <h6>Escopo / Descrição</h6>
+        <p>{{ proposal.description|linebreaks }}</p>
+        {% endif %}
+        {% if proposal.notes %}
+        <hr>
+        <h6>Observações</h6>
+        <p class="text-muted">{{ proposal.notes }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Ações</h3></div>
+      <div class="card-body">
+        <a href="{% url 'portal:financeiro_propostas' %}" class="btn btn-outline-secondary btn-block mb-2">
+          <i class="fas fa-arrow-left mr-1"></i> Voltar para Propostas
+        </a>
+        <a href="{% url 'portal:contato_detail' proposal.customer.id %}" class="btn btn-outline-info btn-block">
+          <i class="fas fa-user mr-1"></i> Ver Cliente
+        </a>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body py-2 text-muted small">
+        Criada em {{ proposal.created_at|date:"d/m/Y H:i" }}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function csrfToken() {
+  return document.cookie.split('; ').find(r => r.startsWith('csrftoken=')).split('=')[1];
+}
+
+async function changeStatus(status) {
+  const labels = {sent: 'Marcar como enviada', accepted: 'Aceitar esta proposta', rejected: 'Rejeitar esta proposta'};
+  if (!confirm(labels[status] + '?')) return;
+  const r = await fetch("{% url 'portal:financeiro_proposta_status' proposal.id %}", {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken()},
+    body: JSON.stringify({status})
+  });
+  const data = await r.json();
+  if (data.ok) { location.reload(); }
+  else toastr.error(data.error || 'Erro.');
+}
+
+const btnConverter = document.getElementById('btn-converter');
+if (btnConverter) {
+  btnConverter.addEventListener('click', async () => {
+    if (!confirm('Converter esta proposta em Contrato de Honorários?')) return;
+    const r = await fetch("{% url 'portal:financeiro_proposta_converter' proposal.id %}", {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken()},
+      body: JSON.stringify({})
+    });
+    const data = await r.json();
+    if (data.ok) {
+      toastr.success('Contrato criado!');
+      setTimeout(() => window.location.href = `/app/financeiro/contratos/${data.agreement_id}/`, 1000);
+    } else toastr.error(data.error || 'Erro.');
+  });
+}
+</script>
+{% endblock %}

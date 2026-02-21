@@ -5,123 +5,631 @@
 {% block breadcrumb %}Processos / {{ process.number }}{% endblock %}
 {% block content %}
 <div class="row">
+  <!-- COLUNA PRINCIPAL -->
   <div class="col-md-8">
+
+    <!-- Dados do Processo -->
     <div class="card card-primary card-outline">
-      <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-balance-scale"></i> Dados do Processo</h3>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title"><i class="fas fa-balance-scale mr-1"></i> Dados do Processo</h3>
+        <div>
+          <a href="{% url 'portal:processo_edit' process.id %}" class="btn btn-sm btn-outline-primary">
+            <i class="fas fa-edit"></i> Editar
+          </a>
+          <button class="btn btn-sm btn-outline-danger ml-1" id="btn-delete-process">
+            <i class="fas fa-trash"></i> Excluir
+          </button>
+        </div>
       </div>
       <div class="card-body">
-        <dl class="row">
-          <dt class="col-sm-3">Número:</dt>
-          <dd class="col-sm-9"><strong>{{ process.number }}</strong></dd>
-          
-          <dt class="col-sm-3">Tribunal:</dt>
-          <dd class="col-sm-9">{{ process.court|default:"—" }}</dd>
-          
-          <dt class="col-sm-3">Assunto:</dt>
-          <dd class="col-sm-9">{{ process.subject|default:"—" }}</dd>
-          
-          <dt class="col-sm-3">Fase:</dt>
-          <dd class="col-sm-9">
-            {% if process.phase == 'initial' %}<span class="badge badge-info">Inicial</span>
-            {% elif process.phase == 'instruction' %}<span class="badge badge-primary">Instrução</span>
-            {% elif process.phase == 'sentence' %}<span class="badge badge-warning">Sentença</span>
-            {% elif process.phase == 'appeal' %}<span class="badge badge-secondary">Recurso</span>
-            {% elif process.phase == 'execution' %}<span class="badge badge-success">Execução</span>
-            {% elif process.phase == 'archived' %}<span class="badge badge-dark">Arquivado</span>
-            {% else %}{{ process.phase }}{% endif %}
-          </dd>
-          
-          <dt class="col-sm-3">Status:</dt>
-          <dd class="col-sm-9">
-            {% if process.status == 'active' %}<span class="badge badge-success">Ativo</span>
-            {% elif process.status == 'suspended' %}<span class="badge badge-warning">Suspenso</span>
-            {% elif process.status == 'finished' %}<span class="badge badge-secondary">Finalizado</span>
-            {% else %}{{ process.status }}{% endif %}
-          </dd>
-          
-          <dt class="col-sm-3">Criado em:</dt>
-          <dd class="col-sm-9">{{ process.created_at|date:"d/m/Y H:i" }}</dd>
-        </dl>
+        <div class="row">
+          <div class="col-md-6">
+            <dl class="row mb-0">
+              <dt class="col-sm-5">Número CNJ:</dt>
+              <dd class="col-sm-7"><strong>{{ process.number }}</strong></dd>
+              <dt class="col-sm-5">Tribunal:</dt>
+              <dd class="col-sm-7">{{ process.court|default:"—" }}</dd>
+              <dt class="col-sm-5">Assunto:</dt>
+              <dd class="col-sm-7">{{ process.subject|default:"—" }}</dd>
+              <dt class="col-sm-5">Área:</dt>
+              <dd class="col-sm-7">{{ process.get_area_display|default:"—" }}</dd>
+              <dt class="col-sm-5">Vara:</dt>
+              <dd class="col-sm-7">{{ process.court_unit|default:"—" }}</dd>
+              <dt class="col-sm-5">Juiz:</dt>
+              <dd class="col-sm-7">{{ process.judge_name|default:"—" }}</dd>
+            </dl>
+          </div>
+          <div class="col-md-6">
+            <dl class="row mb-0">
+              <dt class="col-sm-5">Fase:</dt>
+              <dd class="col-sm-7">
+                {% if process.phase == 'initial' %}<span class="badge badge-info">Inicial</span>
+                {% elif process.phase == 'instruction' %}<span class="badge badge-primary">Instrução</span>
+                {% elif process.phase == 'sentence' %}<span class="badge badge-warning">Sentença</span>
+                {% elif process.phase == 'appeal' %}<span class="badge badge-secondary">Recurso</span>
+                {% elif process.phase == 'execution' %}<span class="badge badge-success">Execução</span>
+                {% elif process.phase == 'archived' %}<span class="badge badge-dark">Arquivado</span>
+                {% else %}{{ process.phase }}{% endif %}
+              </dd>
+              <dt class="col-sm-5">Status:</dt>
+              <dd class="col-sm-7">
+                {% if process.status == 'active' %}<span class="badge badge-success">Ativo</span>
+                {% elif process.status == 'suspended' %}<span class="badge badge-warning">Suspenso</span>
+                {% elif process.status == 'finished' %}<span class="badge badge-secondary">Finalizado</span>
+                {% endif %}
+              </dd>
+              <dt class="col-sm-5">Risco:</dt>
+              <dd class="col-sm-7">
+                {% if process.risk == 'critico' %}<span class="badge badge-danger">Crítico</span>
+                {% elif process.risk == 'alto' %}<span class="badge badge-warning">Alto</span>
+                {% elif process.risk == 'medio' %}<span class="badge badge-info">Médio</span>
+                {% elif process.risk == 'baixo' %}<span class="badge badge-success">Baixo</span>
+                {% else %}—{% endif %}
+              </dd>
+              <dt class="col-sm-5">Êxito:</dt>
+              <dd class="col-sm-7">{% if process.success_probability %}{{ process.success_probability }}%{% else %}—{% endif %}</dd>
+              <dt class="col-sm-5">Valor da Causa:</dt>
+              <dd class="col-sm-7">{% if process.cause_value %}R$ {{ process.cause_value|floatformat:2 }}{% else %}—{% endif %}</dd>
+              <dt class="col-sm-5">Responsável:</dt>
+              <dd class="col-sm-7">{{ process.responsible|default:"—" }}</dd>
+            </dl>
+          </div>
+        </div>
+        {% if process.description %}
+        <hr>
+        <p class="mb-0"><strong>Descrição:</strong> {{ process.description }}</p>
+        {% endif %}
+        {% if process.next_action %}
+        <div class="alert alert-info mt-2 mb-0 py-2"><i class="fas fa-arrow-right mr-1"></i> <strong>Próxima ação:</strong> {{ process.next_action }}</div>
+        {% endif %}
+        {% if process.tag_list %}
+        <div class="mt-2">
+          {% for tag in process.tag_list %}
+          <span class="badge badge-light border">{{ tag }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
     </div>
 
+    <!-- Datas -->
+    {% if process.filing_date or process.first_hearing_date or process.sentence_date %}
+    <div class="card card-outline card-info">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-calendar-alt mr-1"></i> Datas Importantes</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            {% if process.filing_date %}<tr><td>Ajuizamento</td><td>{{ process.filing_date|date:"d/m/Y" }}</td></tr>{% endif %}
+            {% if process.distribution_date %}<tr><td>Distribuição</td><td>{{ process.distribution_date|date:"d/m/Y" }}</td></tr>{% endif %}
+            {% if process.first_hearing_date %}<tr><td>1ª Audiência</td><td>{{ process.first_hearing_date|date:"d/m/Y" }}</td></tr>{% endif %}
+            {% if process.sentence_date %}<tr><td>Sentença</td><td>{{ process.sentence_date|date:"d/m/Y" }}</td></tr>{% endif %}
+            {% if process.last_movement_date %}<tr><td>Última Movimentação</td><td>{{ process.last_movement_date|date:"d/m/Y" }} — {{ process.last_movement }}</td></tr>{% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Partes do Processo -->
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-users"></i> Partes do Processo</h3>
+        <h3 class="card-title"><i class="fas fa-users mr-1"></i> Partes do Processo</h3>
         <div class="card-tools">
-          <button class="btn btn-sm btn-primary" onclick="alert('Funcionalidade em desenvolvimento'); return false;">
+          <button class="btn btn-sm btn-primary" data-toggle="modal" data-target="#modalAddParty">
             <i class="fas fa-plus"></i> Adicionar Parte
           </button>
         </div>
       </div>
       <div class="card-body p-0">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Papel</th>
-            </tr>
-          </thead>
-          <tbody>
+        <table class="table table-sm mb-0" id="parties-table">
+          <thead><tr><th>Nome</th><th>Papel</th><th>Documento</th><th>Contato</th><th></th></tr></thead>
+          <tbody id="parties-tbody">
             {% for party in parties %}
-            <tr>
-              <td>{{ party.name|default:party.customer.name }}</td>
+            <tr id="party-row-{{ party.id }}">
+              <td>
+                {% if party.customer %}
+                <a href="{% url 'portal:contato_detail' party.customer.id %}">{{ party.display_name }}</a>
+                {% else %}{{ party.display_name }}{% endif %}
+              </td>
               <td><span class="badge badge-secondary">{{ party.get_role_display }}</span></td>
+              <td>{{ party.document|default:"—" }}</td>
+              <td>{{ party.email|default:party.phone|default:"—" }}</td>
+              <td class="text-right">
+                <button class="btn btn-xs btn-outline-danger btn-remove-party" data-id="{{ party.id }}"><i class="fas fa-times"></i></button>
+              </td>
             </tr>
             {% empty %}
-            <tr>
-              <td colspan="2" class="text-center text-muted p-3">Nenhuma parte cadastrada.</td>
-            </tr>
+            <tr id="parties-empty"><td colspan="5" class="text-center text-muted p-3">Nenhuma parte cadastrada.</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </div>
-  </div>
 
-  <div class="col-md-4">
-    <div class="card card-warning">
+    <!-- Notas / Timeline -->
+    <div class="card">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-clock"></i> Prazos</h3>
+        <h3 class="card-title"><i class="fas fa-sticky-note mr-1"></i> Notas Internas</h3>
+        <div class="card-tools">
+          <button class="btn btn-sm btn-primary" data-toggle="modal" data-target="#modalAddNote">
+            <i class="fas fa-plus"></i> Nova Nota
+          </button>
+        </div>
       </div>
-      <div class="card-body p-0">
-        <ul class="list-group list-group-flush">
-          {% for d in deadlines %}
-          <li class="list-group-item">
-            <strong>{{ d.title }}</strong><br>
-            <small class="text-muted">{{ d.due_date|date:"d/m/Y" }}</small>
-            {% if d.priority == 'urgent' %}<span class="badge badge-danger float-right">Urgente</span>{% endif %}
-          </li>
+      <div class="card-body">
+        <div id="notes-list">
+          {% for note in notes %}
+          <div class="callout callout-{% if note.is_private %}warning{% else %}info{% endif %} mb-2" id="note-{{ note.id }}">
+            <div class="d-flex justify-content-between">
+              <small class="text-muted">{{ note.author }} — {{ note.created_at|date:"d/m/Y H:i" }}
+                {% if note.is_private %}<span class="badge badge-warning ml-1">Privada</span>{% endif %}
+              </small>
+              <button class="btn btn-xs btn-link text-danger btn-delete-note" data-id="{{ note.id }}"><i class="fas fa-trash"></i></button>
+            </div>
+            <p class="mb-0 mt-1">{{ note.text }}</p>
+          </div>
           {% empty %}
-          <li class="list-group-item text-muted">Sem prazos.</li>
+          <p class="text-muted text-center" id="notes-empty">Nenhuma nota registrada.</p>
           {% endfor %}
-        </ul>
-      </div>
-      <div class="card-footer">
-        <a href="#" class="btn btn-sm btn-block btn-primary" onclick="alert('Funcionalidade em desenvolvimento'); return false;">Adicionar Prazo</a>
+        </div>
       </div>
     </div>
 
-    <div class="card card-info">
+  </div>
+
+  <!-- COLUNA LATERAL -->
+  <div class="col-md-4">
+
+    <!-- Prazos -->
+    <div class="card card-warning">
       <div class="card-header">
-        <h3 class="card-title"><i class="fas fa-folder"></i> Documentos</h3>
+        <h3 class="card-title"><i class="fas fa-clock mr-1"></i> Prazos</h3>
+        <div class="card-tools">
+          <button class="btn btn-sm btn-light" data-toggle="modal" data-target="#modalAddDeadline">
+            <i class="fas fa-plus"></i>
+          </button>
+        </div>
       </div>
       <div class="card-body p-0">
-        <ul class="list-group list-group-flush">
-          {% for doc in documents %}
-          <li class="list-group-item">
-            <i class="far fa-file-pdf text-danger"></i> {{ doc.title }}
+        <ul class="list-group list-group-flush" id="deadlines-list">
+          {% for d in deadlines %}
+          <li class="list-group-item py-2" id="deadline-{{ d.id }}">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <strong>{{ d.title }}</strong><br>
+                <small class="text-muted">{{ d.due_date|date:"d/m/Y" }}</small>
+                {% if d.responsible %}<small class="text-muted ml-1">— {{ d.responsible }}</small>{% endif %}
+              </div>
+              <div>
+                {% if d.priority == 'urgent' %}<span class="badge badge-danger">Urgente</span>
+                {% elif d.priority == 'high' %}<span class="badge badge-warning">Alta</span>{% endif %}
+                {% if d.status == 'pending' %}
+                <button class="btn btn-xs btn-outline-success ml-1 btn-complete-deadline" data-id="{{ d.id }}" title="Marcar concluído"><i class="fas fa-check"></i></button>
+                {% else %}<span class="badge badge-success">Concluído</span>{% endif %}
+              </div>
+            </div>
           </li>
           {% empty %}
-          <li class="list-group-item text-muted">Sem documentos.</li>
+          <li class="list-group-item text-muted text-center" id="deadlines-empty">Sem prazos.</li>
           {% endfor %}
         </ul>
       </div>
-      <div class="card-footer">
-        <a href="#" class="btn btn-sm btn-block btn-primary" onclick="alert('Funcionalidade em desenvolvimento'); return false;">Upload</a>
+    </div>
+
+    <!-- Documentos -->
+    <div class="card card-info">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-folder mr-1"></i> Documentos</h3>
+        <div class="card-tools">
+          <button class="btn btn-sm btn-light" data-toggle="modal" data-target="#modalUploadDoc">
+            <i class="fas fa-upload"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush" id="documents-list">
+          {% for doc in documents %}
+          <li class="list-group-item py-2">
+            <i class="far fa-file-alt text-info mr-1"></i>
+            <a href="{% url 'portal:documento_download' doc.id %}" target="_blank">{{ doc.title }}</a>
+            <br><small class="text-muted">{{ doc.created_at|date:"d/m/Y" }}</small>
+          </li>
+          {% empty %}
+          <li class="list-group-item text-muted text-center" id="docs-empty">Sem documentos.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <!-- Criado em -->
+    <div class="card">
+      <div class="card-body py-2 text-muted text-sm">
+        <i class="fas fa-info-circle mr-1"></i> Criado em {{ process.created_at|date:"d/m/Y H:i" }}
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== MODAIS ==================== -->
+
+<!-- Modal: Adicionar Parte -->
+<div class="modal fade" id="modalAddParty" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Adicionar Parte</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Buscar Contato Existente</label>
+          <input type="text" id="party-search-input" class="form-control" placeholder="Digite o nome ou CPF/CNPJ...">
+          <div id="party-search-results" class="list-group mt-1" style="display:none;"></div>
+          <input type="hidden" id="party-customer-id">
+          <div id="party-selected-name" class="alert alert-success mt-1 py-1" style="display:none;"></div>
+        </div>
+        <div class="form-group">
+          <label>Ou informe o nome diretamente</label>
+          <input type="text" id="party-name" class="form-control" placeholder="Nome da parte">
+        </div>
+        <div class="form-row">
+          <div class="col">
+            <label>Papel</label>
+            <select id="party-role" class="form-control">
+              {% for val, label in role_choices %}
+              <option value="{{ val }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col">
+            <label>CPF/CNPJ</label>
+            <input type="text" id="party-document" class="form-control" placeholder="000.000.000-00">
+          </div>
+        </div>
+        <div class="form-row mt-2">
+          <div class="col">
+            <label>Email</label>
+            <input type="email" id="party-email" class="form-control">
+          </div>
+          <div class="col">
+            <label>Telefone</label>
+            <input type="text" id="party-phone" class="form-control">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-party">Adicionar</button>
       </div>
     </div>
   </div>
 </div>
+
+<!-- Modal: Nova Nota -->
+<div class="modal fade" id="modalAddNote" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Nova Nota</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Texto</label>
+          <textarea id="note-text" class="form-control" rows="4" placeholder="Descreva a nota, observação ou atualização..."></textarea>
+        </div>
+        <div class="form-check">
+          <input type="checkbox" id="note-private" class="form-check-input" checked>
+          <label class="form-check-label" for="note-private">Nota privada (visível apenas internamente)</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-note">Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Adicionar Prazo -->
+<div class="modal fade" id="modalAddDeadline" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Adicionar Prazo</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Título *</label>
+          <input type="text" id="deadline-title" class="form-control" placeholder="Ex: Contestação, Audiência...">
+        </div>
+        <div class="form-row">
+          <div class="col">
+            <label>Data de Vencimento *</label>
+            <input type="date" id="deadline-date" class="form-control">
+          </div>
+          <div class="col">
+            <label>Tipo</label>
+            <select id="deadline-type" class="form-control">
+              {% for val, label in type_choices %}
+              <option value="{{ val }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="form-row mt-2">
+          <div class="col">
+            <label>Prioridade</label>
+            <select id="deadline-priority" class="form-control">
+              {% for val, label in priority_choices %}
+              <option value="{{ val }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col">
+            <label>Responsável</label>
+            <select id="deadline-responsible" class="form-control">
+              <option value="">— Nenhum —</option>
+              {% for u in users %}<option value="{{ u.id }}">{{ u }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="form-group mt-2">
+          <label>Descrição</label>
+          <textarea id="deadline-description" class="form-control" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button class="btn btn-warning" id="btn-save-deadline">Adicionar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Upload Documento -->
+<div class="modal fade" id="modalUploadDoc" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Upload de Documento</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Título</label>
+          <input type="text" id="doc-title" class="form-control" placeholder="Deixe em branco para usar o nome do arquivo">
+        </div>
+        <div class="form-group">
+          <label>Arquivo *</label>
+          <input type="file" id="doc-file" class="form-control-file">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button class="btn btn-info" id="btn-upload-doc">Fazer Upload</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const PROCESS_ID = {{ process.id }};
+const URLS = {
+  buscarContatos: "{% url 'portal:processo_buscar_contatos' %}",
+  addParty: "{% url 'portal:processo_party_add' process.id %}",
+  addNote: "{% url 'portal:processo_note_add' process.id %}",
+  addDeadline: "{% url 'portal:processo_prazo_add' process.id %}",
+  uploadDoc: "{% url 'portal:processo_documento_upload' process.id %}",
+  deleteProcess: "{% url 'portal:processo_delete' process.id %}",
+};
+
+function csrfToken() {
+  return document.cookie.split('; ').find(r => r.startsWith('csrftoken=')).split('=')[1];
+}
+
+async function postJSON(url, data) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken()},
+    body: JSON.stringify(data)
+  });
+  return r.json();
+}
+
+// ---- BUSCA DE CONTATOS ----
+let searchTimer;
+document.getElementById('party-search-input').addEventListener('input', function() {
+  clearTimeout(searchTimer);
+  const q = this.value.trim();
+  if (q.length < 2) { document.getElementById('party-search-results').style.display = 'none'; return; }
+  searchTimer = setTimeout(async () => {
+    const res = await fetch(URLS.buscarContatos + '?q=' + encodeURIComponent(q), {
+      headers: {'X-CSRFToken': csrfToken()}
+    });
+    const data = await res.json();
+    const container = document.getElementById('party-search-results');
+    container.innerHTML = '';
+    if (data.results.length === 0) {
+      container.innerHTML = '<div class="list-group-item text-muted small">Nenhum contato encontrado.</div>';
+    } else {
+      data.results.forEach(c => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'list-group-item list-group-item-action py-1';
+        btn.textContent = c.text + (c.document ? ` (${c.document})` : '');
+        btn.addEventListener('click', () => {
+          document.getElementById('party-customer-id').value = c.id;
+          const sel = document.getElementById('party-selected-name');
+          sel.textContent = '✓ ' + c.text;
+          sel.style.display = 'block';
+          container.style.display = 'none';
+          document.getElementById('party-search-input').value = c.text;
+        });
+        container.appendChild(btn);
+      });
+    }
+    container.style.display = 'block';
+  }, 300);
+});
+
+// ---- ADICIONAR PARTE ----
+document.getElementById('btn-save-party').addEventListener('click', async () => {
+  const data = {
+    customer_id: document.getElementById('party-customer-id').value || null,
+    name: document.getElementById('party-name').value.trim(),
+    role: document.getElementById('party-role').value,
+    document: document.getElementById('party-document').value.trim(),
+    email: document.getElementById('party-email').value.trim(),
+    phone: document.getElementById('party-phone').value.trim(),
+  };
+  const res = await postJSON(URLS.addParty, data);
+  if (res.ok) {
+    const emptyRow = document.getElementById('parties-empty');
+    if (emptyRow) emptyRow.remove();
+    const p = res.party;
+    const row = document.createElement('tr');
+    row.id = 'party-row-' + p.id;
+    row.innerHTML = `<td>${p.name}</td><td><span class="badge badge-secondary">${p.role}</span></td><td>${p.document||'—'}</td><td>${p.email||'—'}</td>
+      <td class="text-right"><button class="btn btn-xs btn-outline-danger btn-remove-party" data-id="${p.id}"><i class="fas fa-times"></i></button></td>`;
+    document.getElementById('parties-tbody').appendChild(row);
+    attachRemoveParty(row.querySelector('.btn-remove-party'));
+    $('#modalAddParty').modal('hide');
+    toastr.success('Parte adicionada!');
+  } else {
+    toastr.error(res.error || 'Erro ao adicionar parte.');
+  }
+});
+
+function attachRemoveParty(btn) {
+  btn.addEventListener('click', async function() {
+    if (!confirm('Remover esta parte?')) return;
+    const id = this.dataset.id;
+    const url = `/app/processos/${PROCESS_ID}/party/${id}/remove/`;
+    const res = await postJSON(url, {});
+    if (res.ok) {
+      document.getElementById('party-row-' + id).remove();
+      if (!document.querySelector('#parties-tbody tr')) {
+        document.getElementById('parties-tbody').innerHTML = '<tr id="parties-empty"><td colspan="5" class="text-center text-muted p-3">Nenhuma parte cadastrada.</td></tr>';
+      }
+    }
+  });
+}
+document.querySelectorAll('.btn-remove-party').forEach(attachRemoveParty);
+
+// ---- ADICIONAR NOTA ----
+document.getElementById('btn-save-note').addEventListener('click', async () => {
+  const text = document.getElementById('note-text').value.trim();
+  if (!text) { toastr.warning('Texto não pode ser vazio.'); return; }
+  const res = await postJSON(URLS.addNote, {
+    text,
+    is_private: document.getElementById('note-private').checked,
+  });
+  if (res.ok) {
+    const n = res.note;
+    const emptyEl = document.getElementById('notes-empty');
+    if (emptyEl) emptyEl.remove();
+    const el = document.createElement('div');
+    el.className = `callout callout-${n.is_private ? 'warning' : 'info'} mb-2`;
+    el.id = 'note-' + n.id;
+    el.innerHTML = `<div class="d-flex justify-content-between">
+      <small class="text-muted">${n.author} — ${n.date} ${n.is_private ? '<span class="badge badge-warning ml-1">Privada</span>' : ''}</small>
+      <button class="btn btn-xs btn-link text-danger btn-delete-note" data-id="${n.id}"><i class="fas fa-trash"></i></button>
+    </div><p class="mb-0 mt-1">${n.text}</p>`;
+    document.getElementById('notes-list').prepend(el);
+    attachDeleteNote(el.querySelector('.btn-delete-note'));
+    document.getElementById('note-text').value = '';
+    $('#modalAddNote').modal('hide');
+    toastr.success('Nota salva!');
+  } else {
+    toastr.error(res.error || 'Erro ao salvar nota.');
+  }
+});
+
+function attachDeleteNote(btn) {
+  btn.addEventListener('click', async function() {
+    if (!confirm('Excluir esta nota?')) return;
+    const id = this.dataset.id;
+    const url = `/app/processos/${PROCESS_ID}/note/${id}/delete/`;
+    const res = await postJSON(url, {});
+    if (res.ok) document.getElementById('note-' + id).remove();
+  });
+}
+document.querySelectorAll('.btn-delete-note').forEach(attachDeleteNote);
+
+// ---- ADICIONAR PRAZO ----
+document.getElementById('btn-save-deadline').addEventListener('click', async () => {
+  const title = document.getElementById('deadline-title').value.trim();
+  const due_date = document.getElementById('deadline-date').value;
+  if (!title || !due_date) { toastr.warning('Título e data são obrigatórios.'); return; }
+  const res = await postJSON(URLS.addDeadline, {
+    title, due_date,
+    type: document.getElementById('deadline-type').value,
+    priority: document.getElementById('deadline-priority').value,
+    responsible_id: document.getElementById('deadline-responsible').value || null,
+    description: document.getElementById('deadline-description').value.trim(),
+  });
+  if (res.ok) {
+    const d = res.deadline;
+    const emptyEl = document.getElementById('deadlines-empty');
+    if (emptyEl) emptyEl.remove();
+    const li = document.createElement('li');
+    li.className = 'list-group-item py-2';
+    li.id = 'deadline-' + d.id;
+    li.innerHTML = `<div class="d-flex justify-content-between align-items-start">
+      <div><strong>${d.title}</strong><br><small class="text-muted">${d.due_date} — ${d.responsible}</small></div>
+      <div>${d.priority_key === 'urgent' ? '<span class="badge badge-danger">Urgente</span>' : d.priority_key === 'high' ? '<span class="badge badge-warning">Alta</span>' : ''}
+      <button class="btn btn-xs btn-outline-success ml-1 btn-complete-deadline" data-id="${d.id}"><i class="fas fa-check"></i></button></div></div>`;
+    document.getElementById('deadlines-list').appendChild(li);
+    attachCompleteDeadline(li.querySelector('.btn-complete-deadline'));
+    document.getElementById('deadline-title').value = '';
+    $('#modalAddDeadline').modal('hide');
+    toastr.success('Prazo adicionado!');
+  } else {
+    toastr.error(res.error || 'Erro ao adicionar prazo.');
+  }
+});
+
+function attachCompleteDeadline(btn) {
+  btn.addEventListener('click', async function() {
+    const id = this.dataset.id;
+    const url = `/app/processos/${PROCESS_ID}/prazo/${id}/complete/`;
+    const res = await postJSON(url, {});
+    if (res.ok) {
+      const li = document.getElementById('deadline-' + id);
+      li.querySelector('.btn-complete-deadline').replaceWith(Object.assign(document.createElement('span'), {className: 'badge badge-success', textContent: 'Concluído'}));
+      toastr.success('Prazo concluído!');
+    }
+  });
+}
+document.querySelectorAll('.btn-complete-deadline').forEach(attachCompleteDeadline);
+
+// ---- UPLOAD DOCUMENTO ----
+document.getElementById('btn-upload-doc').addEventListener('click', async () => {
+  const file = document.getElementById('doc-file').files[0];
+  if (!file) { toastr.warning('Selecione um arquivo.'); return; }
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('title', document.getElementById('doc-title').value.trim());
+  formData.append('csrfmiddlewaretoken', csrfToken());
+  const r = await fetch(URLS.uploadDoc, {method: 'POST', body: formData, headers: {'X-CSRFToken': csrfToken()}});
+  const res = await r.json();
+  if (res.ok) {
+    const d = res.document;
+    const emptyEl = document.getElementById('docs-empty');
+    if (emptyEl) emptyEl.remove();
+    const li = document.createElement('li');
+    li.className = 'list-group-item py-2';
+    li.innerHTML = `<i class="far fa-file-alt text-info mr-1"></i><a href="${d.url}" target="_blank">${d.title}</a><br><small class="text-muted">${d.date}</small>`;
+    document.getElementById('documents-list').prepend(li);
+    document.getElementById('doc-title').value = '';
+    document.getElementById('doc-file').value = '';
+    $('#modalUploadDoc').modal('hide');
+    toastr.success('Documento enviado!');
+  } else {
+    toastr.error(res.error || 'Erro no upload.');
+  }
+});
+
+// ---- EXCLUIR PROCESSO ----
+document.getElementById('btn-delete-process').addEventListener('click', async () => {
+  if (!confirm('Excluir este processo permanentemente?')) return;
+  const res = await postJSON(URLS.deleteProcess, {});
+  if (res.ok) window.location.href = "{% url 'portal:processos' %}";
+  else toastr.error('Erro ao excluir.');
+});
+</script>
 {% endblock %}

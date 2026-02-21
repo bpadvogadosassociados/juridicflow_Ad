@@ -1,0 +1,73 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Nova Proposta | JuridicFlow{% endblock %}
+{% block page_title %}Nova Proposta Comercial{% endblock %}
+{% block breadcrumb %}Financeiro / Propostas / Nova{% endblock %}
+{% block content %}
+<form method="post" autocomplete="off">
+  {% csrf_token %}
+  <div class="row">
+    <div class="col-md-8">
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Dados da Proposta</h3></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label>Título *</label>
+            <input type="text" name="title" class="form-control" placeholder="Ex: Consultoria Trabalhista" required>
+          </div>
+          <div class="form-row">
+            <div class="col-md-8 form-group">
+              <label>Cliente *</label>
+              <select name="customer_id" class="form-control" required>
+                <option value="">Selecione o cliente...</option>
+                {% for c in customers %}
+                <option value="{{ c.id }}">{{ c.name }} {% if c.document %}({{ c.document }}){% endif %}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4 form-group">
+              <label>Valor Total (R$) *</label>
+              <input type="number" name="amount" class="form-control" step="0.01" min="0.01" placeholder="0,00" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Processo Vinculado (opcional)</label>
+            <select name="process_id" class="form-control">
+              <option value="">— Nenhum —</option>
+              {% for p in processes %}
+              <option value="{{ p.id }}">{{ p.number }} {% if p.subject %}— {{ p.subject|truncatechars:50 }}{% endif %}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Escopo / Descrição dos Serviços</label>
+            <textarea name="description" class="form-control" rows="5" placeholder="Descreva os serviços inclusos, condições, etc."></textarea>
+          </div>
+          <div class="form-group">
+            <label>Observações</label>
+            <textarea name="notes" class="form-control" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Datas</h3></div>
+        <div class="card-body">
+          <div class="form-group">
+            <label>Válida até</label>
+            <input type="date" name="valid_until" class="form-control">
+          </div>
+        </div>
+      </div>
+      <div class="card-footer bg-white">
+        <button type="submit" class="btn btn-primary btn-block">
+          <i class="fas fa-save mr-1"></i> Criar Proposta
+        </button>
+        <a href="{% url 'portal:financeiro_propostas' %}" class="btn btn-outline-secondary btn-block mt-1">Cancelar</a>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}

@@ -168,16 +168,16 @@
             </a>
           </li>
           <li class="nav-item">
-            <a href="#" class="nav-link disabled" style="opacity:.6"><i class="nav-icon fas fa-funnel-dollar"></i><p>Funil de Leads <span class="badge badge-warning right">Breve</span></p></a>
+            <a href="{% url 'portal:contatos_pipeline' %}" class="nav-link {% if active_page == 'pipeline' %}active{% endif %}"><i class="nav-icon fas fa-funnel-dollar"></i><p>Pipeline / CRM</p></a>
           </li>
           <li class="nav-item">
-            <a href="#" class="nav-link disabled" style="opacity:.6"><i class="nav-icon fas fa-signature"></i><p>Propostas <span class="badge badge-warning right">Breve</span></p></a>
+            <a href="{% url 'portal:financeiro_propostas' %}" class="nav-link {% if active_page == 'propostas' %}active{% endif %}"><i class="nav-icon fas fa-signature"></i><p>Propostas</p></a>
           </li>
           <li class="nav-item">
             <a href="#" class="nav-link disabled" style="opacity:.6"><i class="nav-icon fab fa-whatsapp"></i><p>Whatsapp <span class="badge badge-warning right">Breve</span></p></a>
           </li>
           <li class="nav-item">
-            <a href="#" class="nav-link disabled" style="opacity:.6"><i class="nav-icon fas fa-chart-line"></i><p>Relatórios <span class="badge badge-warning right">Breve</span></p></a>
+            <a href="{% url 'portal:relatorios_dashboard' %}" class="nav-link {% if active_page == 'relatorios' %}active{% endif %}"><i class="nav-icon fas fa-chart-line"></i><p>Relatórios</p></a>
           </li>
           <li class="nav-item">
             <a href="#" class="nav-link disabled" style="opacity:.6"><i class="nav-icon fas fa-tags"></i><p>Tags & origens <span class="badge badge-warning right">Breve</span></p></a>

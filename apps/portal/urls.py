@@ -24,6 +24,12 @@ urlpatterns = [
     # JSON endpoints (portal)
     path("app/api/search/", views.global_search, name="global_search"),
     path("app/api/notifications/", views.notifications_json, name="notifications_json"),
+    path("app/api/notifications/<int:notif_id>/read/", views.notification_mark_read, name="notification_mark_read"),
+    path("app/api/notifications/read-all/", views.notification_mark_all_read, name="notification_mark_all_read"),
+    path("app/api/chat/users/search/", views.chat_users_search, name="chat_users_search"),
+    path("app/relatorios/", views.relatorios_dashboard, name="relatorios_dashboard"),
+    path("app/relatorios/json/", views.relatorios_json, name="relatorios_json"),
+    path("app/relatorios/export/", views.relatorios_export, name="relatorios_export"),
 
     # Calendar JSON
     path("app/api/calendar/events/", views.calendar_events_json, name="calendar_events_json"),
@@ -113,4 +119,30 @@ urlpatterns = [
     path("app/publicacoes/regras/create/", views.publicacao_rule_create, name="publicacao_rule_create"),
     path("app/publicacoes/filtros/", views.publicacao_filters, name="publicacao_filters"),
     path("app/publicacoes/filtros/create/", views.publicacao_filter_create, name="publicacao_filter_create"),
+
+    # Processos — edit, partes, notas, prazos, docs
+    path("app/processos/<int:process_id>/editar/", views.processo_edit, name="processo_edit"),
+    path("app/processos/<int:process_id>/party/add/", views.processo_party_add, name="processo_party_add"),
+    path("app/processos/<int:process_id>/party/<int:party_id>/remove/", views.processo_party_remove, name="processo_party_remove"),
+    path("app/processos/<int:process_id>/note/add/", views.processo_note_add, name="processo_note_add"),
+    path("app/processos/<int:process_id>/note/<int:note_id>/delete/", views.processo_note_delete, name="processo_note_delete"),
+    path("app/processos/<int:process_id>/prazo/add/", views.processo_prazo_add, name="processo_prazo_add"),
+    path("app/processos/<int:process_id>/prazo/<int:deadline_id>/complete/", views.processo_prazo_complete, name="processo_prazo_complete"),
+    path("app/processos/<int:process_id>/documento/upload/", views.processo_documento_upload, name="processo_documento_upload"),
+    path("app/api/processos/buscar-contatos/", views.processo_buscar_contatos, name="processo_buscar_contatos"),
+
+    # Contatos — pipeline e relacionamentos
+    path("app/contatos/pipeline/", views.contatos_pipeline, name="contatos_pipeline"),
+    path("app/contatos/<int:customer_id>/pipeline/move/", views.contato_pipeline_move, name="contato_pipeline_move"),
+    path("app/contatos/<int:customer_id>/next-action/", views.contato_next_action, name="contato_next_action"),
+    path("app/contatos/<int:customer_id>/relationship/add/", views.contato_relationship_add, name="contato_relationship_add"),
+    path("app/contatos/<int:customer_id>/relationship/<int:rel_id>/remove/", views.contato_relationship_remove, name="contato_relationship_remove"),
+    path("app/contatos/<int:customer_id>/documento/upload/", views.contato_document_upload, name="contato_document_upload"),
+
+    # Financeiro — Propostas
+    path("app/financeiro/propostas/", views.financeiro_propostas, name="financeiro_propostas"),
+    path("app/financeiro/propostas/nova/", views.financeiro_proposta_create, name="financeiro_proposta_create"),
+    path("app/financeiro/propostas/<int:proposal_id>/", views.financeiro_proposta_detail, name="financeiro_proposta_detail"),
+    path("app/financeiro/propostas/<int:proposal_id>/status/", views.financeiro_proposta_status, name="financeiro_proposta_status"),
+    path("app/financeiro/propostas/<int:proposal_id>/converter/", views.financeiro_proposta_converter, name="financeiro_proposta_converter"),
 ]

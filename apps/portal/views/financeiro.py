@@ -482,3 +482,150 @@ def financeiro_despesa_detail(request, expense_id):
         "notes": expense.notes,
         "created_at": expense.created_at.isoformat(),
     })
+
+# ==================== PROPOSTAS ====================
+
+from apps.finance.models import Proposal
+from apps.processes.models import Process as _Process
+
+
+@require_portal_access()
+@require_role("lawyer")
+def financeiro_propostas(request):
+    status_filter = request.GET.get("status", "")
+    search = request.GET.get("search", "")
+
+    qs = Proposal.objects.filter(
+        office=request.office
+    ).select_related("customer", "responsible").order_by("-created_at")
+
+    if status_filter:
+        qs = qs.filter(status=status_filter)
+    if search:
+        qs = qs.filter(
+            Q(title__icontains=search) | Q(customer__name__icontains=search)
+        )
+
+    paginator = Paginator(qs, settings.PORTAL_PAGINATION_SIZE)
+    propostas = paginator.get_page(request.GET.get("page", 1))
+
+    return render(request, "portal/financeiro_propostas.html", {
+        "propostas": propostas,
+        "status_filter": status_filter,
+        "search": search,
+        "status_choices": Proposal.STATUS_CHOICES,
+        "active_page": "financeiro",
+    })
+
+
+@require_portal_access()
+@require_role("lawyer")
+@require_http_methods(["GET", "POST"])
+def financeiro_proposta_create(request):
+    from apps.customers.models import Customer as _Customer
+    if request.method == "POST":
+        title = request.POST.get("title", "").strip()
+        customer_id = request.POST.get("customer_id", "")
+        amount = request.POST.get("amount", "0")
+        description = request.POST.get("description", "")
+        valid_until = request.POST.get("valid_until", "") or None
+        notes = request.POST.get("notes", "")
+        process_id = request.POST.get("process_id", "") or None
+
+        if not title or not customer_id:
+            messages.error(request, "Título e cliente são obrigatórios.")
+        else:
+            try:
+                customer = _Customer.objects.get(id=customer_id, organization=request.organization)
+                process = None
+                if process_id:
+                    try:
+                        process = _Process.objects.get(id=process_id, organization=request.organization)
+                    except _Process.DoesNotExist:
+                        pass
+
+                proposal = Proposal.objects.create(
+                    organization=request.organization,
+                    office=request.office,
+                    title=title,
+                    customer=customer,
+                    amount=amount,
+                    description=description,
+                    valid_until=valid_until,
+                    notes=notes,
+                    process=process,
+                    responsible=request.user,
+                    issue_date=timezone.now().date(),
+                    status="draft",
+                )
+                log_activity(request, "proposal_create", f"Proposta criada: {proposal.title}")
+                messages.success(request, "Proposta criada com sucesso!")
+                return redirect("portal:financeiro_proposta_detail", proposal.id)
+            except Exception as e:
+                messages.error(request, f"Erro: {e}")
+
+    customers = _Customer.objects.filter(office=request.office, is_deleted=False).order_by("name")
+    processes = _Process.objects.filter(office=request.office).order_by("-created_at")[:50]
+
+    return render(request, "portal/financeiro_proposta_form.html", {
+        "customers": customers,
+        "processes": processes,
+        "active_page": "financeiro",
+    })
+
+
+@require_portal_access()
+@require_role("lawyer")
+def financeiro_proposta_detail(request, proposal_id):
+    proposal = get_object_or_404(
+        Proposal,
+        id=proposal_id,
+        organization=request.organization,
+        office=request.office,
+    )
+    return render(request, "portal/financeiro_proposta_detail.html", {
+        "proposal": proposal,
+        "status_choices": Proposal.STATUS_CHOICES,
+        "active_page": "financeiro",
+    })
+
+
+@require_portal_json()
+@require_role("lawyer")
+@require_http_methods(["POST"])
+def financeiro_proposta_status(request, proposal_id):
+    """Muda status da proposta."""
+    proposal = get_object_or_404(
+        Proposal,
+        id=proposal_id,
+        organization=request.organization,
+        office=request.office,
+    )
+    payload = parse_json_body(request)
+    new_status = payload.get("status", "")
+    valid_statuses = [s[0] for s in Proposal.STATUS_CHOICES]
+    if new_status not in valid_statuses:
+        return JsonResponse({"error": "Status inválido."}, status=400)
+    proposal.status = new_status
+    proposal.save(update_fields=["status"])
+    log_activity(request, "proposal_status", f"Proposta {proposal.title} → {new_status}")
+    return JsonResponse({"ok": True, "status": proposal.get_status_display()})
+
+
+@require_portal_json()
+@require_role("lawyer")
+@require_http_methods(["POST"])
+def financeiro_proposta_converter(request, proposal_id):
+    """Converte proposta aceita em FeeAgreement."""
+    proposal = get_object_or_404(
+        Proposal,
+        id=proposal_id,
+        organization=request.organization,
+        office=request.office,
+    )
+    try:
+        agreement = proposal.convert_to_agreement()
+        log_activity(request, "proposal_convert", f"Proposta {proposal.title} convertida em contrato #{agreement.id}")
+        return JsonResponse({"ok": True, "agreement_id": agreement.id})
+    except ValueError as e:
+        return JsonResponse({"error": str(e)}, status=400)

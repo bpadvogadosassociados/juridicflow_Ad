@@ -45,10 +45,25 @@
           {% endfor %}
         </select>
       </div>
+      <div class="form-group mr-2">
+        <select name="area" class="form-control">
+          <option value="">Todas as áreas</option>
+          {% for value, label in area_choices %}
+            <option value="{{ value }}" {% if area == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
       <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Filtrar</button>
       <a href="{% url 'portal:processos' %}" class="btn btn-secondary ml-2">Limpar</a>
     </form>
   </div>
+</div>
+
+<div class="row mb-2">
+  <div class="col-md-3"><div class="small-box bg-info"><div class="inner"><h3>{{ active_count }}</h3><p>Ativos</p></div><div class="icon"><i class="fas fa-balance-scale"></i></div></div></div>
+  <div class="col-md-3"><div class="small-box bg-warning"><div class="inner"><h3>{{ suspended_count }}</h3><p>Suspensos</p></div><div class="icon"><i class="fas fa-pause"></i></div></div></div>
+  <div class="col-md-3"><div class="small-box bg-secondary"><div class="inner"><h3>{{ finished_count }}</h3><p>Finalizados</p></div><div class="icon"><i class="fas fa-check"></i></div></div></div>
+  <div class="col-md-3"><div class="small-box bg-success"><div class="inner"><h3>{{ total }}</h3><p>Total</p></div><div class="icon"><i class="fas fa-folder"></i></div></div></div>
 </div>
 
 <div class="card">

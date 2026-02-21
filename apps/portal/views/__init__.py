@@ -142,3 +142,50 @@ from apps.portal.views._api import (
 
 from apps.portal.permissions import require_role, require_action
 from apps.portal.audit import audited
+# Processos — novos endpoints
+from apps.portal.views.processos import (
+    processo_edit,
+    processo_party_add,
+    processo_party_remove,
+    processo_note_add,
+    processo_note_delete,
+    processo_prazo_add,
+    processo_prazo_complete,
+    processo_documento_upload,
+    processo_buscar_contatos,
+)
+
+# Contatos — pipeline e relacionamentos
+from apps.portal.views.contatos import (
+    contatos_pipeline,
+    contato_pipeline_move,
+    contato_next_action,
+    contato_relationship_add,
+    contato_relationship_remove,
+    contato_document_upload,
+)
+
+# Financeiro — propostas
+from apps.portal.views.financeiro import (
+    financeiro_propostas,
+    financeiro_proposta_create,
+    financeiro_proposta_detail,
+    financeiro_proposta_status,
+    financeiro_proposta_converter,
+)
+
+# Notificações (novos endpoints)
+from apps.portal.views._api import (
+    notification_mark_read,
+    notification_mark_all_read,
+)
+
+# Chat — users search
+from apps.portal.views.suporte import chat_users_search
+
+# Relatórios
+from apps.portal.views.relatorios import (
+    relatorios_dashboard,
+    relatorios_json,
+    relatorios_export,
+)
