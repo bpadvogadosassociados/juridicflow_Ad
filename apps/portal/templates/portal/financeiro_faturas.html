@@ -1,0 +1,113 @@
+{% extends "portal/base.html" %}
+{% block title %}Faturas | JuridicFlow{% endblock %}
+{% block page_title %}Faturas{% endblock %}
+{% block breadcrumb %}Financeiro / Faturas{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:financeiro_dashboard' %}" class="btn btn-secondary">
+      <i class="fas fa-chart-line"></i> Dashboard
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Filtros</h3>
+    <div class="card-tools">
+      <button type="button" class="btn btn-tool" data-card-widget="collapse">
+        <i class="fas fa-minus"></i>
+      </button>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="form-inline">
+      <input type="text" name="search" class="form-control mr-2" placeholder="Buscar" value="{{ search }}">
+      <select name="status" class="form-control mr-2">
+        <option value="">Todos os status</option>
+        {% for value, label in status_choices %}
+          <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <input type="date" name="date_from" class="form-control mr-2" value="{{ date_from }}" placeholder="De">
+      <input type="date" name="date_to" class="form-control mr-2" value="{{ date_to }}" placeholder="Até">
+      <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Filtrar</button>
+      <a href="{% url 'portal:financeiro_faturas' %}" class="btn btn-secondary ml-2">Limpar</a>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Faturas ({{ invoices.paginator.count }} total)</h3>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Número</th>
+          <th>Cliente</th>
+          <th>Emissão</th>
+          <th>Vencimento</th>
+          <th>Valor</th>
+          <th>Pago</th>
+          <th>Saldo</th>
+          <th>Status</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in invoices %}
+        <tr {% if inv.is_overdue %}class="table-danger"{% endif %}>
+          <td><strong>{{ inv.number }}</strong></td>
+          <td>{{ inv.agreement.customer.name }}</td>
+          <td>{{ inv.issue_date|date:"d/m/Y" }}</td>
+          <td>{{ inv.due_date|date:"d/m/Y" }}</td>
+          <td>R$ {{ inv.amount|floatformat:2 }}</td>
+          <td>R$ {{ inv.paid_amount_value|floatformat:2 }}</td>
+          <td>
+            {% if inv.balance_value > 0 %}
+              <span class="text-warning">R$ {{ inv.balance_value|floatformat:2 }}</span>
+            {% else %}
+              <span class="text-success">R$ 0,00</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if inv.status == 'paid' %}<span class="badge badge-success">Paga</span>
+            {% elif inv.status == 'overdue' %}<span class="badge badge-danger">Vencida</span>
+            {% elif inv.status == 'issued' %}<span class="badge badge-warning">Emitida</span>
+            {% else %}<span class="badge badge-secondary">{{ inv.get_status_display }}</span>{% endif %}
+          </td>
+          <td>
+            <a href="{% url 'portal:financeiro_contrato_detail' inv.agreement.id %}" class="btn btn-sm btn-info" title="Ver Contrato">
+              <i class="fas fa-eye"></i>
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="9" class="text-center text-muted p-4">Nenhuma fatura encontrada.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if invoices.has_other_pages %}
+  <div class="card-footer clearfix">
+    <ul class="pagination pagination-sm m-0 float-right">
+      {% if invoices.has_previous %}
+        <li class="page-item"><a class="page-link" href="?page={{ invoices.previous_page_number }}">«</a></li>
+      {% endif %}
+      {% for num in invoices.paginator.page_range %}
+        {% if invoices.number == num %}
+          <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+        {% elif num > invoices.number|add:'-3' and num < invoices.number|add:'3' %}
+          <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+        {% endif %}
+      {% endfor %}
+      {% if invoices.has_next %}
+        <li class="page-item"><a class="page-link" href="?page={{ invoices.next_page_number }}">»</a></li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

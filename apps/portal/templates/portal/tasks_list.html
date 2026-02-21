@@ -1,0 +1,259 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Tarefas | JuridicFlow{% endblock %}
+{% block page_title %}Tarefas{% endblock %}
+{% block breadcrumb %}Tarefas{% endblock %}
+{% block content %}
+
+<div class="row mb-3">
+  <div class="col-md-12 d-flex align-items-center flex-wrap" style="gap:.5rem;">
+    <button class="btn btn-primary" data-toggle="modal" data-target="#cardEditModal">
+      <i class="fas fa-plus"></i> Nova Tarefa
+    </button>
+    <a href="{% url 'portal:kanban' %}" class="btn btn-secondary">
+      <i class="fas fa-columns"></i> Ver Kanban
+    </a>
+  </div>
+</div>
+
+<!-- Filtros -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Filtros</h3>
+    <div class="card-tools">
+      <button type="button" class="btn btn-tool" data-card-widget="collapse"><i class="fas fa-minus"></i></button>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="form-inline flex-wrap" style="gap:.5rem;">
+      <input type="text" name="search" class="form-control form-control-sm"
+             placeholder="Buscar tarefa..." value="{{ search }}">
+      <select name="status" class="form-control form-control-sm">
+        <option value="">Todos os status</option>
+        {% for val, lbl in status_choices %}
+          <option value="{{ val }}" {% if status_f == val %}selected{% endif %}>{{ lbl }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-search"></i> Filtrar</button>
+      <a href="{% url 'portal:tarefas' %}" class="btn btn-secondary btn-sm">Limpar</a>
+    </form>
+  </div>
+</div>
+
+<!-- Lista -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">
+      {{ tasks.paginator.count }} tarefa{{ tasks.paginator.count|pluralize:"s" }}
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Tarefa</th>
+          <th>Coluna</th>
+          <th>Status</th>
+          <th width="80">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for task in tasks %}
+        <tr>
+          <td>
+            <strong>{{ task.title }}</strong>
+            {% if task.body_md %}
+              <br><small class="text-muted">{{ task.body_md|truncatewords:10 }}</small>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge badge-secondary">{{ task.column_name }}</span>
+          </td>
+          <td>
+            {% if task.status == 'done' %}
+              <span class="badge badge-success">Concluída</span>
+            {% elif task.status == 'doing' %}
+              <span class="badge badge-primary">Em andamento</span>
+            {% elif task.status == 'blocked' %}
+              <span class="badge badge-danger">Bloqueada</span>
+            {% else %}
+              <span class="badge badge-secondary">A fazer</span>
+            {% endif %}
+          </td>
+          <td>
+            <button class="btn btn-xs btn-info"
+              onclick="KanbanUI.openEdit({{ task.id }}); return false;" title="Editar">
+              <i class="fas fa-edit"></i>
+            </button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="4" class="text-center text-muted p-4">
+            <i class="fas fa-tasks fa-2x mb-2 d-block"></i>
+            Nenhuma tarefa ainda.
+            <br><a href="{% url 'portal:kanban' %}">Criar no Kanban</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if tasks.has_other_pages %}
+  <div class="card-footer clearfix">
+    <ul class="pagination pagination-sm m-0 float-right">
+      {% if tasks.has_previous %}
+        <li class="page-item">
+          <a class="page-link" href="?page={{ tasks.previous_page_number }}&search={{ search }}&status={{ status_f }}">«</a>
+        </li>
+      {% endif %}
+      {% for num in tasks.paginator.page_range %}
+        {% if tasks.number == num %}
+          <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+        {% elif num > tasks.number|add:'-3' and num < tasks.number|add:'3' %}
+          <li class="page-item">
+            <a class="page-link" href="?page={{ num }}&search={{ search }}&status={{ status_f }}">{{ num }}</a>
+          </li>
+        {% endif %}
+      {% endfor %}
+      {% if tasks.has_next %}
+        <li class="page-item">
+          <a class="page-link" href="?page={{ tasks.next_page_number }}&search={{ search }}&status={{ status_f }}">»</a>
+        </li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Modal editar card (reutiliza o do kanban.html) -->
+<div class="modal fade" id="cardEditModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="card-modal-title">Nova Tarefa</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="card-edit-form" onsubmit="return KanbanUI.saveCard(event);">
+          <input type="hidden" id="card-id">
+          <div class="form-row">
+            <div class="form-group col-md-8">
+              <label>Título</label>
+              <input class="form-control" id="card-title" required>
+            </div>
+            <div class="form-group col-md-4">
+              <label>Número</label>
+              <input type="number" class="form-control" id="card-number" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Descrição</label>
+            <textarea class="form-control" id="card-body-md" rows="5"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Coluna</label>
+            <select class="form-control" id="card-column-id"></select>
+          </div>
+          <button class="btn btn-primary" type="submit">Salvar</button>
+          <button class="btn btn-secondary ml-2" type="button" data-dismiss="modal">Cancelar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Reutiliza o KanbanUI já disponível no portal.js
+// Abre o modal de criação diretamente
+var KanbanUI = window.KanbanUI || {};
+
+KanbanUI.openEdit = function(cardId) {
+  fetch('/app/api/kanban/cards/detail/' + cardId + '/')
+    .then(r => r.json())
+    .then(function(d) {
+      document.getElementById('card-id').value = d.id;
+      document.getElementById('card-title').value = d.title;
+      document.getElementById('card-number').value = d.number;
+      document.getElementById('card-body-md').value = d.body_md || '';
+      document.getElementById('card-modal-title').textContent = 'Editar Tarefa';
+
+      return loadColumns(d.column_id); // <-- seta coluna correta
+    })
+    .then(function() {
+      $('#cardEditModal').modal('show');
+    });
+};
+
+KanbanUI.saveCard = function(e) {
+  e.preventDefault();
+  var cardId = document.getElementById('card-id').value;
+  var columnId = document.getElementById('card-column-id').value;
+  var payload = {
+    column_id: columnId,
+    title:   document.getElementById('card-title').value,
+    number:  parseInt(document.getElementById('card-number').value),
+    body_md: document.getElementById('card-body-md').value
+  };
+  var url = cardId
+    ? '/app/api/kanban/cards/update/' + cardId + '/'
+    : '/app/api/kanban/cards/create/';
+
+  fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+    body: JSON.stringify(payload)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.ok) { $('#cardEditModal').modal('hide'); location.reload(); }
+    else { alert('Erro: ' + (d.error || 'desconhecido')); }
+  });
+  return false;
+};
+
+// Preenche select de colunas ao abrir modal de criação
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelector('[data-target="#cardEditModal"]').addEventListener('click', function() {
+    document.getElementById('card-id').value = '';
+    document.getElementById('card-title').value = '';
+    document.getElementById('card-number').value = '';
+    document.getElementById('card-body-md').value = '';
+    document.getElementById('card-modal-title').textContent = 'Nova Tarefa';
+
+    loadColumns(null)
+    
+  });
+});
+
+function loadColumns(selectedId) {
+  return fetch('/app/api/kanban/board/')
+    .then(r => r.json())
+    .then(d => {
+      var sel = document.getElementById('card-column-id');
+      sel.innerHTML = '';
+      d.columns.forEach(function(col) {
+        var opt = document.createElement('option');
+        opt.value = col.id;
+        opt.textContent = col.title;
+        sel.appendChild(opt);
+      });
+      if (selectedId) sel.value = String(selectedId);
+      if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+    });
+}
+
+function getCsrf() {
+  var c = document.cookie.split(';');
+  for (var i = 0; i < c.length; i++) {
+    var kv = c[i].trim().split('=');
+    if (kv[0] === 'csrftoken') return decodeURIComponent(kv[1]);
+  }
+  return '';
+}
+</script>
+{% endblock %}

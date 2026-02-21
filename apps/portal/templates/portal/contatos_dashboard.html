@@ -1,0 +1,118 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Dashboard CRM | JuridicFlow{% endblock %}
+{% block page_title %}Dashboard CRM{% endblock %}
+{% block breadcrumb %}Contatos / Dashboard{% endblock %}
+{% block extra_css %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:contatos' %}" class="btn btn-primary"><i class="fas fa-list"></i> Ver Todos</a>
+    <a href="{% url 'portal:contato_create' %}" class="btn btn-success"><i class="fas fa-plus"></i> Novo Contato</a>
+    <a href="{% url 'portal:contatos_export' %}" class="btn btn-secondary"><i class="fas fa-download"></i> Exportar</a>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-info">
+      <div class="inner"><h3>{{ total }}</h3><p>Total de Contatos</p></div>
+      <div class="icon"><i class="fas fa-users"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-warning">
+      <div class="inner"><h3>{{ leads }}</h3><p>Leads</p></div>
+      <div class="icon"><i class="fas fa-user-clock"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-success">
+      <div class="inner"><h3>{{ clients }}</h3><p>Clientes</p></div>
+      <div class="icon"><i class="fas fa-user-check"></i></div>
+    </div>
+  </div>
+  <div class="col-lg-3 col-6">
+    <div class="small-box bg-primary">
+      <div class="inner"><h3>{{ conversion_rate|floatformat:1 }}%</h3><p>Taxa de Conversão</p></div>
+      <div class="icon"><i class="fas fa-chart-line"></i></div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Por Status</h3></div>
+      <div class="card-body"><canvas id="statusChart" height="200"></canvas></div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Por Origem</h3></div>
+      <div class="card-body"><canvas id="originChart" height="200"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Contatos Recentes</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-sm">
+          <tbody>
+          {% for c in recent %}
+          <tr>
+            <td><a href="{% url 'portal:contato_detail' c.id %}">{{ c.name }}</a></td>
+            <td><span class="badge badge-info">{{ c.get_status_display }}</span></td>
+            <td>{{ c.created_at|date:"d/m/Y" }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Interações Recentes</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-sm">
+          <tbody>
+          {% for i in recent_interactions %}
+          <tr>
+            <td><i class="fas fa-{{ i.type }}"></i> {{ i.get_type_display }}</td>
+            <td><a href="{% url 'portal:contato_detail' i.customer.id %}">{{ i.customer.name }}</a></td>
+            <td>{{ i.date|date:"d/m H:i" }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+const statusData = {{ by_status|safe }};
+const originData = {{ by_origin|safe }};
+new Chart(document.getElementById('statusChart'), {
+  type: 'doughnut',
+  data: {
+    labels: statusData.map(d => d.status),
+    datasets: [{data: statusData.map(d => d.count), backgroundColor: ['#ffc107','#17a2b8','#28a745','#6c757d','#dc3545']}]
+  }
+});
+new Chart(document.getElementById('originChart'), {
+  type: 'bar',
+  data: {
+    labels: originData.map(d => d.origin),
+    datasets: [{label: 'Origem', data: originData.map(d => d.count), backgroundColor: '#007bff'}]
+  }
+});
+</script>
+{% endblock %}

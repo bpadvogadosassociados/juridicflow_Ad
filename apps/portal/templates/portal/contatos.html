@@ -1,0 +1,121 @@
+{% extends "portal/base.html" %}
+{% block title %}Contatos | JuridicFlow{% endblock %}
+{% block page_title %}Contatos{% endblock %}
+{% block breadcrumb %}Contatos{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:contatos_dashboard' %}" class="btn btn-secondary"><i class="fas fa-chart-line"></i> Dashboard</a>
+    <a href="{% url 'portal:contato_create' %}" class="btn btn-primary"><i class="fas fa-plus"></i> Novo Contato</a>
+    <a href="{% url 'portal:contatos_export' %}" class="btn btn-success"><i class="fas fa-download"></i> Exportar</a>
+    <button class="btn btn-info" onclick="$('#importModal').modal('show');"><i class="fas fa-upload"></i> Importar CSV</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Filtros</h3>
+    <div class="card-tools"><button type="button" class="btn btn-tool" data-card-widget="collapse"><i class="fas fa-minus"></i></button></div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="form-inline">
+      <input type="text" name="search" class="form-control mr-2" placeholder="Buscar" value="{{ search }}">
+      <select name="status" class="form-control mr-2">
+        <option value="">Status</option>
+        {% for value, label in status_choices %}<option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+      <select name="type" class="form-control mr-2">
+        <option value="">Tipo</option>
+        {% for value, label in type_choices %}<option value="{{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+      <select name="origin" class="form-control mr-2">
+        <option value="">Origem</option>
+        {% for value, label in origin_choices %}<option value="{{ value }}" {% if origin_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+      <select name="tag" class="form-control mr-2">
+        <option value="">Tag</option>
+        {% for tag in all_tags %}<option value="{{ tag }}" {% if tag_filter == tag %}selected{% endif %}>{{ tag }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i></button>
+      <a href="{% url 'portal:contatos' %}" class="btn btn-secondary ml-2">Limpar</a>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Contatos ({{ customers.paginator.count }})</h3></div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead><tr><th>Nome</th><th>Tipo</th><th>Status</th><th>Email</th><th>Telefone</th><th>Tags</th><th>Ações</th></tr></thead>
+      <tbody>
+      {% for c in customers %}
+      <tr>
+        <td><a href="{% url 'portal:contato_detail' c.id %}"><strong>{{ c.name }}</strong></a>{% if c.document %}<br><small class="text-muted">{{ c.document }}</small>{% endif %}</td>
+        <td>{{ c.get_type_display }}</td>
+        <td>
+          {% if c.status == 'lead' %}<span class="badge badge-warning">{{ c.get_status_display }}</span>
+          {% elif c.status == 'client' %}<span class="badge badge-success">{{ c.get_status_display }}</span>
+          {% else %}<span class="badge badge-secondary">{{ c.get_status_display }}</span>{% endif %}
+        </td>
+        <td>{{ c.email|default:"—" }}</td>
+        <td>{{ c.phone|default:"—" }}</td>
+        <td>{% for tag in c.tag_list %}<span class="badge badge-info">{{ tag }}</span> {% endfor %}</td>
+        <td>
+          <a href="{% url 'portal:contato_detail' c.id %}" class="btn btn-sm btn-info"><i class="fas fa-eye"></i></a>
+          <a href="{% url 'portal:contato_edit' c.id %}" class="btn btn-sm btn-primary"><i class="fas fa-edit"></i></a>
+          <button class="btn btn-sm btn-danger" onclick="deleteContato({{ c.id }}, '{{ c.name }}');"><i class="fas fa-trash"></i></button>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="text-center text-muted p-4">Nenhum contato.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if customers.has_other_pages %}
+  <div class="card-footer clearfix">
+    <ul class="pagination pagination-sm m-0 float-right">
+      {% if customers.has_previous %}<li class="page-item"><a class="page-link" href="?page={{ customers.previous_page_number }}">«</a></li>{% endif %}
+      {% for num in customers.paginator.page_range %}
+        {% if customers.number == num %}<li class="page-item active"><span class="page-link">{{ num }}</span></li>
+        {% elif num > customers.number|add:'-3' and num < customers.number|add:'3' %}<li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>{% endif %}
+      {% endfor %}
+      {% if customers.has_next %}<li class="page-item"><a class="page-link" href="?page={{ customers.next_page_number }}">»</a></li>{% endif %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+
+<div class="modal fade" id="importModal">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Importar CSV</h5><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button></div>
+      <div class="modal-body">
+        <p>CSV com colunas: nome, cpf_cnpj, tipo, email, telefone</p>
+        <form id="import-form" onsubmit="return importCSV(event);">
+          <input type="file" class="form-control" id="csv-file" accept=".csv" required>
+          <button type="submit" class="btn btn-primary mt-2">Importar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function deleteContato(id, name) {
+  if (!confirm(`Deletar ${name}?`)) return;
+  fetch(`/app/contatos/${id}/delete/`, {method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}})
+    .then(() => window.location.reload());
+}
+function importCSV(e) {
+  e.preventDefault();
+  const form = new FormData();
+  form.append('file', document.getElementById('csv-file').files[0]);
+  fetch('/app/contatos/import/', {method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}, body: form})
+    .then(r => r.json()).then(data => { alert(`Importados: ${data.created}`); $('#importModal').modal('hide'); window.location.reload(); });
+  return false;
+}
+function getCookie(name) {let cookieValue = null; if (document.cookie) {const cookies = document.cookie.split(';'); for (let i = 0; i < cookies.length; i++) {const cookie = cookies[i].trim(); if (cookie.substring(0, name.length + 1) === (name + '=')) {cookieValue = decodeURIComponent(cookie.substring(name.length + 1)); break;}}} return cookieValue;}
+</script>
+{% endblock %}

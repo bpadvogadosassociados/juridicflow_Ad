@@ -1,0 +1,177 @@
+<!-- apps/portal/templates/portal/prazos_calendar.html -->
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Calendário de Prazos | JuridicFlow{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'adminlte/plugins/fullcalendar/main.css' %}">
+{% endblock %}
+{% block page_title %}Calendário de Prazos{% endblock %}
+{% block breadcrumb %}Prazos / Calendário{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:prazos' %}" class="btn btn-secondary">
+      <i class="fas fa-list"></i> Ver Lista
+    </a>
+    <button class="btn btn-primary" onclick="PrazosCalendarUI.openCreateModal(); return false;">
+      <i class="fas fa-plus"></i> Novo Prazo
+    </button>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-md-3">
+    <div class="card">
+      <div class="card-header">
+        <h4 class="card-title">Legenda</h4>
+      </div>
+      <div class="card-body">
+        <div class="mb-2">
+          <span style="display:inline-block;width:15px;height:15px;background:#dc3545;border-radius:3px;"></span> Atrasado / Urgente
+        </div>
+        <div class="mb-2">
+          <span style="display:inline-block;width:15px;height:15px;background:#fd7e14;border-radius:3px;"></span> Prioridade Alta
+        </div>
+        <div class="mb-2">
+          <span style="display:inline-block;width:15px;height:15px;background:#ffc107;border-radius:3px;"></span> Prioridade Média
+        </div>
+        <div class="mb-2">
+          <span style="display:inline-block;width:15px;height:15px;background:#28a745;border-radius:3px;"></span> Prioridade Baixa
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-9">
+    <div class="card card-primary">
+      <div class="card-body p-0">
+        <div id="calendar"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Criar/Ver Prazo -->
+<div class="modal fade" id="prazoModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="prazoModalTitle">Novo Prazo</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="prazo-form" onsubmit="return PrazosCalendarUI.save(event);">
+          <div class="form-group">
+            <label>Título *</label>
+            <input type="text" class="form-control" id="prazo-title" required>
+          </div>
+          
+          <div class="form-group">
+            <label>Data *</label>
+            <input type="date" class="form-control" id="prazo-due-date" required>
+          </div>
+          
+          <div class="form-group">
+            <label>Prioridade</label>
+            <select class="form-control" id="prazo-priority">
+              <option value="low">Baixa</option>
+              <option value="medium" selected>Média</option>
+              <option value="high">Alta</option>
+              <option value="urgent">Urgente</option>
+            </select>
+          </div>
+          
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/moment/moment.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/fullcalendar/main.js' %}"></script>
+<script>
+const PrazosCalendarUI = {
+  calendar: null,
+
+  init() {
+    const calendarEl = document.getElementById('calendar');
+    
+    this.calendar = new FullCalendar.Calendar(calendarEl, {
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,listWeek'
+      },
+      locale: 'pt-br',
+      buttonText: {
+        today: 'Hoje',
+        month: 'Mês',
+        week: 'Semana',
+        list: 'Lista'
+},
+events: '/app/prazos/calendar/json/',
+  eventClick: (info) => {
+    alert(`Prazo: ${info.event.title}\nData: ${info.event.start.toLocaleDateString()}`);
+  },
+  
+  dateClick: (info) => {
+    document.getElementById('prazo-due-date').value = info.dateStr;
+    this.openCreateModal();
+  }
+});
+
+this.calendar.render();
+},
+openCreateModal() {
+document.getElementById('prazo-title').value = '';
+document.getElementById('prazo-priority').value = 'medium';
+$('#prazoModal').modal('show');
+},
+save(e) {
+e.preventDefault();
+const data = {
+  title: document.getElementById('prazo-title').value,
+  due_date: document.getElementById('prazo-due-date').value,
+  priority: document.getElementById('prazo-priority').value,
+  type: 'task'
+};
+
+fetch('/app/prazos/create/', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-CSRFToken': getCookie('csrftoken')
+  },
+  body: JSON.stringify(data)
+})
+.then(r => r.json())
+.then(() => {
+  $('#prazoModal').modal('hide');
+  this.calendar.refetchEvents();
+});
+
+return false;
+}
+};
+document.addEventListener('DOMContentLoaded', () => {
+PrazosCalendarUI.init();
+});
+function getCookie(name) {
+let cookieValue = null;
+if (document.cookie && document.cookie !== '') {
+const cookies = document.cookie.split(';');
+for (let i = 0; i < cookies.length; i++) {
+const cookie = cookies[i].trim();
+if (cookie.substring(0, name.length + 1) === (name + '=')) {
+cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+break;
+}
+}
+}
+return cookieValue;
+}
+</script>
+{% endblock %}

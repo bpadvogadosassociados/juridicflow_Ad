@@ -1,0 +1,277 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Pastas | JuridicFlow{% endblock %}
+{% block page_title %}Gestão de Pastas{% endblock %}
+{% block breadcrumb %}Documentos / Pastas{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:documentos_dashboard' %}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Voltar</a>
+    <button class="btn btn-primary" onclick="openCreateModal();"><i class="fas fa-plus"></i> Nova Pasta</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-folder-tree"></i> Estrutura de Pastas</h3>
+  </div>
+  <div class="card-body">
+    {% if folders %}
+      <div class="folder-tree">
+        {% for folder in folders %}
+          <div class="folder-item mb-3">
+            <div class="d-flex align-items-center">
+              <i class="fas fa-folder text-warning fa-2x mr-3"></i>
+              <div class="flex-grow-1">
+                <h5 class="mb-0">
+                  <a href="{% url 'portal:documentos' %}?folder={{ folder.id }}">{{ folder.name }}</a>
+                  <span class="badge badge-info ml-2">{{ folder.document_count }} docs</span>
+                </h5>
+                {% if folder.description %}
+                  <small class="text-muted">{{ folder.description }}</small>
+                {% endif %}
+                <br>
+                <small class="text-muted">
+                  Criada em {{ folder.created_at|date:"d/m/Y" }}
+                  {% if folder.created_by %}
+                    por {% if folder.created_by.get_full_name %}{{ folder.created_by.get_full_name }}{% else %}{{ folder.created_by.email }}{% endif %}
+                  {% endif %}
+                </small>
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-sm btn-info" onclick="openCreateModal({{ folder.id }}, '{{ folder.name }}');" title="Adicionar subpasta">
+                  <i class="fas fa-folder-plus"></i>
+                </button>
+                <a href="{% url 'portal:documentos' %}?folder={{ folder.id }}" class="btn btn-sm btn-primary" title="Ver documentos">
+                  <i class="fas fa-eye"></i>
+                </a>
+                <button class="btn btn-sm btn-danger" onclick="deleteFolder({{ folder.id }}, '{{ folder.name }}');" title="Deletar">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </div>
+            
+            {% if folder.subfolders.all %}
+              <div class="ml-5 mt-2">
+                {% for subfolder in folder.subfolders.all %}
+                  <div class="d-flex align-items-center mb-2">
+                    <i class="fas fa-folder-open text-info fa-lg mr-2"></i>
+                    <div class="flex-grow-1">
+                      <strong>
+                        <a href="{% url 'portal:documentos' %}?folder={{ subfolder.id }}">{{ subfolder.name }}</a>
+                      </strong>
+                      <span class="badge badge-secondary ml-2">{{ subfolder.document_count }} docs</span>
+                      <br>
+                      <small class="text-muted">{{ subfolder.full_path }}</small>
+                    </div>
+                    <div class="btn-group btn-group-sm">
+                      <button class="btn btn-info" onclick="openCreateModal({{ subfolder.id }}, '{{ subfolder.name }}');">
+                        <i class="fas fa-folder-plus"></i>
+                      </button>
+                      <a href="{% url 'portal:documentos' %}?folder={{ subfolder.id }}" class="btn btn-primary">
+                        <i class="fas fa-eye"></i>
+                      </a>
+                      <button class="btn btn-danger" onclick="deleteFolder({{ subfolder.id }}, '{{ subfolder.name }}');">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {% if subfolder.subfolders.all %}
+                    <div class="ml-4">
+                      {% for subsubfolder in subfolder.subfolders.all %}
+                        <div class="d-flex align-items-center mb-1">
+                          <i class="far fa-folder text-secondary mr-2"></i>
+                          <div class="flex-grow-1">
+                            <a href="{% url 'portal:documentos' %}?folder={{ subsubfolder.id }}">{{ subsubfolder.name }}</a>
+                            <span class="badge badge-light ml-1">{{ subsubfolder.document_count }}</span>
+                          </div>
+                          <div class="btn-group btn-group-sm">
+                            <a href="{% url 'portal:documentos' %}?folder={{ subsubfolder.id }}" class="btn btn-primary">
+                              <i class="fas fa-eye"></i>
+                            </a>
+                            <button class="btn btn-danger" onclick="deleteFolder({{ subsubfolder.id }}, '{{ subsubfolder.name }}');">
+                              <i class="fas fa-trash"></i>
+                            </button>
+                          </div>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+          <hr>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-center py-5">
+        <i class="fas fa-folder-open fa-4x text-muted mb-3"></i>
+        <h4 class="text-muted">Nenhuma pasta criada ainda</h4>
+        <p class="text-muted">Crie sua primeira pasta para organizar os documentos</p>
+        <button class="btn btn-primary" onclick="openCreateModal();">
+          <i class="fas fa-plus"></i> Criar Primeira Pasta
+        </button>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Modal Criar Pasta -->
+<div class="modal fade" id="createFolderModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalTitle">Nova Pasta</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="folder-form" onsubmit="return saveFolder(event);">
+          <input type="hidden" id="parent-id">
+          
+          <div class="form-group">
+            <label>Nome da Pasta *</label>
+            <input type="text" class="form-control" id="folder-name" required placeholder="Ex: Contratos 2026">
+          </div>
+          
+          <div class="form-group">
+            <label>Descrição (opcional)</label>
+            <textarea class="form-control" id="folder-description" rows="2" placeholder="Descrição da pasta"></textarea>
+          </div>
+          
+          <div id="parent-info" class="alert alert-info d-none">
+            <i class="fas fa-info-circle"></i> 
+            Esta pasta será criada dentro de: <strong id="parent-name"></strong>
+          </div>
+          
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save"></i> Criar Pasta
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function openCreateModal(parentId = null, parentName = '') {
+  document.getElementById('folder-name').value = '';
+  document.getElementById('folder-description').value = '';
+  document.getElementById('parent-id').value = parentId || '';
+  
+  if (parentId) {
+    document.getElementById('modalTitle').textContent = 'Nova Subpasta';
+    document.getElementById('parent-name').textContent = parentName;
+    document.getElementById('parent-info').classList.remove('d-none');
+  } else {
+    document.getElementById('modalTitle').textContent = 'Nova Pasta';
+    document.getElementById('parent-info').classList.add('d-none');
+  }
+  
+  $('#createFolderModal').modal('show');
+}
+
+function saveFolder(e) {
+  e.preventDefault();
+  
+  const data = {
+    name: document.getElementById('folder-name').value.trim(),
+    description: document.getElementById('folder-description').value.trim(),
+    parent_id: document.getElementById('parent-id').value || null
+  };
+  
+  if (!data.name) {
+    alert('Nome da pasta é obrigatório!');
+    return false;
+  }
+  
+  fetch('/app/pastas/create/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCookie('csrftoken')
+    },
+    body: JSON.stringify(data)
+  })
+  .then(r => r.json())
+  .then(result => {
+    if (result.ok) {
+      $('#createFolderModal').modal('hide');
+      window.location.reload();
+    } else {
+      alert('Erro ao criar pasta: ' + (result.error || 'Erro desconhecido'));
+    }
+  })
+  .catch(err => {
+    alert('Erro ao criar pasta: ' + err.message);
+  });
+  
+  return false;
+}
+
+function deleteFolder(folderId, folderName) {
+  if (!confirm(`Deletar a pasta "${folderName}"?\n\nATENÇÃO: Só é possível deletar pastas vazias (sem documentos ou subpastas).`)) {
+    return;
+  }
+  
+  fetch(`/app/pastas/${folderId}/delete/`, {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken': getCookie('csrftoken')
+    }
+  })
+  .then(r => r.json())
+  .then(result => {
+    if (result.ok) {
+      window.location.reload();
+    } else {
+      alert('Erro: ' + (result.error || 'Não foi possível deletar a pasta. Certifique-se que ela está vazia.'));
+    }
+  })
+  .catch(err => {
+    alert('Erro ao deletar pasta: ' + err.message);
+  });
+}
+
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+</script>
+
+<style>
+.folder-item {
+  padding: 15px;
+  border: 1px solid #dee2e6;
+  border-radius: 5px;
+  background-color: #f8f9fa;
+}
+
+.folder-item:hover {
+  background-color: #e9ecef;
+}
+
+.folder-tree a {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.folder-tree a:hover {
+  text-decoration: underline;
+}
+</style>
+{% endblock %}

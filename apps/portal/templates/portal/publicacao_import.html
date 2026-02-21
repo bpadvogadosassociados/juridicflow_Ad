@@ -1,0 +1,65 @@
+{% extends "portal/base.html" %}
+{% block page_title %}Importar Publicações{% endblock %}
+{% block breadcrumb %}Publicações / Importar{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-md-8">
+    <div class="card card-primary">
+      <div class="card-header"><h3 class="card-title">Importação Manual (MVP)</h3></div>
+      <form method="post">{% csrf_token %}
+        <div class="card-body">
+          <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> <strong>MVP:</strong> Cole o texto da publicação. Futuramente: integração automática com DJEN.
+          </div>
+          
+          <div class="form-group">
+            <label>Fonte</label>
+            <select class="form-control" name="source">
+              {% for v, l in source_choices %}
+                <option value="{{ v }}">{{ l }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>Data da Publicação *</label>
+            <input type="date" class="form-control" name="publication_date" required>
+          </div>
+          
+          <div class="form-group">
+            <label>Texto da Publicação *</label>
+            <textarea class="form-control" name="raw_text" rows="10" required placeholder="Cole aqui o texto completo da publicação..."></textarea>
+            <small class="text-muted">O sistema vai detectar automaticamente o número CNJ e tipo de publicação.</small>
+          </div>
+        </div>
+        <div class="card-footer">
+          <button type="submit" class="btn btn-primary"><i class="fas fa-upload"></i> Importar</button>
+          <a href="{% url 'portal:publicacoes_dashboard' %}" class="btn btn-secondary">Cancelar</a>
+        </div>
+      </form>
+    </div>
+  </div>
+  
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Últimas Importações</h3></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for imp in recent_imports %}
+          <li class="list-group-item">
+            <strong>{{ imp.get_source_display }}</strong><br>
+            <small>{{ imp.started_at|date:"d/m/Y H:i" }}</small><br>
+            <span class="badge badge-{% if imp.status == 'success' %}success{% elif imp.status == 'failed' %}danger{% else %}warning{% endif %}">
+              {{ imp.get_status_display }}
+            </span>
+            <small>{{ imp.total_imported }}/{{ imp.total_found }}</small>
+          </li>
+          {% empty %}
+          <li class="list-group-item text-muted">Nenhuma importação ainda.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

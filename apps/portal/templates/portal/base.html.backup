@@ -1,0 +1,285 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}JuridicFlow{% endblock %}</title>
+
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
+  <link rel="stylesheet" href="{% static 'adminlte/plugins/fontawesome-free/css/all.min.css' %}">
+  <link rel="stylesheet" href="{% static 'adminlte/plugins/overlayScrollbars/css/OverlayScrollbars.min.css' %}">
+  {% block extra_css %}{% endblock %}
+  <link rel="stylesheet" href="{% static 'adminlte/dist/css/adminlte.min.css' %}">
+  <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}">
+</head>
+<body class="{{ portal_body_class|default:'hold-transition dark-mode sidebar-mini layout-fixed layout-navbar-fixed layout-footer-fixed' }}">
+<div class="wrapper">
+
+  <!-- Navbar -->
+  <nav class="main-header navbar navbar-expand navbar-dark">
+    <ul class="navbar-nav">
+      <li class="nav-item">
+        <a class="nav-link" data-widget="pushmenu" href="#" role="button"><i class="fas fa-bars"></i></a>
+      </li>
+      <li class="nav-item d-none d-sm-inline-block">
+        <a href="{% url 'portal:dashboard' %}" class="nav-link">Home</a>
+      </li>
+      <li class="nav-item d-none d-sm-inline-block">
+        <a href="{% url 'portal:support_new' %}" class="nav-link">Contato</a>
+      </li>
+    </ul>
+
+    <ul class="navbar-nav ml-auto">
+      <!-- Navbar Search -->
+      <li class="nav-item">
+        <a class="nav-link" data-widget="navbar-search" href="#" role="button">
+          <i class="fas fa-search"></i>
+        </a>
+        <div class="navbar-search-block">
+          <form class="form-inline" onsubmit="return PortalSearch.submit(event);">
+            <div class="input-group input-group-sm">
+              <input id="navbar-search-input" class="form-control form-control-navbar" type="search" placeholder="Buscar (processos, contatos, tarefas)" aria-label="Search">
+              <div class="input-group-append">
+                <button class="btn btn-navbar" type="submit">
+                  <i class="fas fa-search"></i>
+                </button>
+                <button class="btn btn-navbar" type="button" data-widget="navbar-search">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+          </form>
+          <div id="navbar-search-results" class="portal-search-results"></div>
+        </div>
+      </li>
+
+      <!-- Chat button -->
+      <li class="nav-item">
+        <a class="nav-link" href="#" role="button" onclick="PortalChat.toggle(); return false;">
+          <i class="far fa-comments"></i>
+          <span id="chat-unread-badge" class="badge badge-danger navbar-badge d-none">!</span>
+        </a>
+      </li>
+
+      <!-- Notifications Dropdown Menu -->
+      <li class="nav-item dropdown">
+        <a class="nav-link" data-toggle="dropdown" href="#">
+          <i class="far fa-bell"></i>
+          <span class="badge badge-warning navbar-badge" id="notif-count">0</span>
+        </a>
+        <div class="dropdown-menu dropdown-menu-lg dropdown-menu-right" id="notif-dropdown">
+          <span class="dropdown-item dropdown-header">Notificações</span>
+          <div class="dropdown-divider"></div>
+          <div id="notif-items"></div>
+          <div class="dropdown-divider"></div>
+          <a href="#" class="dropdown-item dropdown-footer">Resumo (MVP)</a>
+        </div>
+      </li>
+
+      <li class="nav-item">
+        <a class="nav-link" data-widget="fullscreen" href="#" role="button">
+          <i class="fas fa-expand-arrows-alt"></i>
+        </a>
+      </li>
+
+      <li class="nav-item">
+        <a class="nav-link" href="{% url 'portal:logout' %}" role="button" title="Sair">
+          <i class="fas fa-sign-out-alt"></i>
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- Main Sidebar Container -->
+  <aside class="main-sidebar sidebar-dark-primary elevation-4">
+    <a href="{% url 'portal:dashboard' %}" class="brand-link">
+      <img src="{% static 'adminlte/dist/img/AdminLTELogo.png' %}" alt="Logo" class="brand-image img-circle elevation-3" style="opacity: .8">
+      <span class="brand-text font-weight-light">JuridicFlow</span>
+    </a>
+
+    <div class="sidebar">
+      <div class="user-panel mt-3 pb-3 mb-3 d-flex">
+        <div class="image">
+          <img src="{% static 'adminlte/dist/img/user2-160x160.jpg' %}" class="img-circle elevation-2" alt="User Image">
+        </div>
+        <div class="info">
+          <span class="d-block">{{ request.user.get_full_name|default:request.user.email }}</span>
+          {% if current_office %}
+            <small class="text-muted">{{ current_office.name }}</small>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="form-inline">
+        <div class="input-group" data-widget="sidebar-search">
+          <input class="form-control form-control-sidebar" type="search" placeholder="Search" aria-label="Search">
+          <div class="input-group-append">
+            <button class="btn btn-sidebar">
+              <i class="fas fa-search fa-fw"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <nav class="mt-2">
+        <ul class="nav nav-pills nav-sidebar flex-column" data-widget="treeview" role="menu" data-accordion="false">
+          <li class="nav-item">
+            <a href="{% url 'portal:dashboard' %}" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">
+              <i class="nav-icon fas fa-tachometer-alt"></i><p>Dashboard</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{% url 'portal:agenda' %}" class="nav-link {% if active_page == 'agenda' %}active{% endif %}">
+              <i class="nav-icon fas fa-calendar-alt"></i><p>Agenda</p>
+            </a>
+          </li>
+         <li class="nav-item">
+            <a href="{% url 'portal:tarefas' %}" class="nav-link {% if active_page == 'tarefas' %}active{% endif %}">
+              <i class="nav-icon fas fa-list-ul"></i><p>Tarefas</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{% url 'portal:kanban' %}" class="nav-link {% if active_page == 'kanban' %}active{% endif %}">
+              <i class="nav-icon fas fa-columns"></i><p>Kanban</p>
+            </a>
+          </li>
+
+          <li class="nav-header">Vendas</li>
+          <li class="nav-item">
+            <a href="{% url 'portal:contatos_dashboard' %}" class="nav-link {% if active_page == 'contatos' %}active{% endif %}">
+              <i class="nav-icon fas fa-users"></i>
+              <p>Contatos</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="#" class="nav-link"><i class="nav-icon far fa-filter"></i><p>Funil de Leads</p></a>
+          </li>
+          <li class="nav-item">
+            <a href="#" class="nav-link"><i class="nav-icon fas fa-signature"></i><p>Propostas</p></a>
+          </li>
+          <li class="nav-item">
+            <a href="#" class="nav-link"><i class="nav-icon fab fa-whatsapp"></i><p>Whatsapp</p></a>
+          </li>
+          <li class="nav-item">
+            <a href="#" class="nav-link"><i class="nav-icon fas fa-chart-line"></i><p>Relatórios</p></a>
+          </li>
+          <li class="nav-item">
+            <a href="#" class="nav-link"><i class="nav-icon fas fa-tags"></i><p>Tags & origens</p></a>
+          </li>
+
+          <li class="nav-header">Gestão</li>
+          <li class="nav-item">
+            <a href="{% url 'portal:processos' %}" class="nav-link {% if active_page == 'processos' %}active{% endif %}">
+              <i class="nav-icon fas fa-balance-scale"></i><p>Processos</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{% url 'portal:documentos_dashboard' %}" class="nav-link">
+              <i class="nav-icon fas fa-folder-open"></i>
+              <p>Documentos</p>
+            </a>
+          </li>
+          <li class="nav-item"><a href="{% url 'portal:prazos' %}" class="nav-link {% if active_page == 'prazos' %}active{% endif %}"><i class="nav-icon fas fa-clock"></i><p>Prazos</p></a></li>
+          <li class="nav-item">
+            <a href="{% url 'portal:publicacoes_dashboard' %}" class="nav-link">
+              <i class="nav-icon fas fa-newspaper"></i>
+              <p>Publicações</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{% url 'portal:financeiro_dashboard' %}" class="nav-link {% if active_page == 'financeiro' %}active{% endif %}">
+              <i class="nav-icon fas fa-dollar-sign"></i>
+              <p>Financeiro</p>
+            </a>
+          </li>
+          <li class="nav-item"><a href="#" class="nav-link"><i class="nav-icon fas fa-users-cog"></i><p>Equipe/Produtividade</p></a></li>
+
+          <li class="nav-header">Sistema</li>
+          <li class="nav-item">
+            <a href="{% url 'portal:settings' %}" class="nav-link {% if active_page == 'settings' %}active{% endif %}">
+              <i class="nav-icon fas fa-cogs"></i><p>Configurações</p>
+            </a>
+          </li>
+          <li class="nav-item"><a href="#" class="nav-link"><i class="nav-icon fas fa-user-shield"></i><p>Permissões</p></a></li>
+          <li class="nav-item"><a href="#" class="nav-link"><i class="nav-icon fas fa-plug"></i><p>Integrações</p></a></li>
+          <li class="nav-item">
+            <a href="{% url 'portal:support_new' %}" class="nav-link {% if active_page == 'support' %}active{% endif %}">
+              <i class="nav-icon far fa-life-ring"></i><p>Contato/Ajuda</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{% url 'portal:support_inbox' %}" class="nav-link {% if active_page == 'support_inbox' %}active{% endif %}">
+              <i class="nav-icon far fa-envelope"></i><p>Suporte</p>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="content-wrapper">
+    <div class="content-header">
+      <div class="container-fluid">
+        {% block content_header %}
+        <div class="row mb-2">
+          <div class="col-sm-6"><h1 class="m-0">{% block page_title %}{% endblock %}</h1></div>
+          <div class="col-sm-6">
+            <ol class="breadcrumb float-sm-right">
+              <li class="breadcrumb-item"><a href="{% url 'portal:dashboard' %}">Home</a></li>
+              <li class="breadcrumb-item active">{% block breadcrumb %}{% endblock %}</li>
+            </ol>
+          </div>
+        </div>
+        {% endblock %}
+      </div>
+    </div>
+
+    <section class="content">
+      <div class="container-fluid">
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+        {% endfor %}
+        {% block content %}{% endblock %}
+      </div>
+    </section>
+  </div>
+
+  <footer class="main-footer">
+    <strong>Copyright &copy; JuridicFlow.</strong>
+    <div class="float-right d-none d-sm-inline-block">
+      <b>Version</b> 0.1
+    </div>
+  </footer>
+
+</div>
+
+<!-- Chat Window -->
+<div id="chat-window" class="portal-chat-window d-none">
+  <div class="portal-chat-header">
+    <span><i class="far fa-comments"></i> Chat</span>
+    <div class="portal-chat-header-actions">
+      <button class="btn btn-xs btn-secondary" onclick="PortalChat.newGroup(); return false;"><i class="fas fa-user-friends"></i></button>
+      <button class="btn btn-xs btn-secondary" onclick="PortalChat.close(); return false;"><i class="fas fa-times"></i></button>
+    </div>
+  </div>
+  <div class="portal-chat-body">
+    <div class="portal-chat-threads" id="chat-threads"></div>
+    <div class="portal-chat-messages">
+      <div id="chat-messages" class="portal-chat-messages-scroll"></div>
+      <form onsubmit="return PortalChat.send(event);" class="portal-chat-send">
+        <input id="chat-input" class="form-control form-control-sm" placeholder="Digite uma mensagem...">
+        <button class="btn btn-primary btn-sm" type="submit"><i class="fas fa-paper-plane"></i></button>
+      </form>
+    </div>
+  </div>
+</div>
+<script src="{% static 'portal/js/csrf.js' %}"></script>
+<script src="{% static 'adminlte/plugins/jquery/jquery.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+<script src="{% static 'adminlte/plugins/overlayScrollbars/js/jquery.overlayScrollbars.min.js' %}"></script>
+<script src="{% static 'adminlte/dist/js/adminlte.min.js' %}"></script>
+<script src="{% static 'portal/js/portal.js' %}"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,304 @@
+{% extends "portal/base.html" %}
+{% block title %}Regras de Prazo | JuridicFlow{% endblock %}
+{% block page_title %}Regras de Prazo{% endblock %}
+{% block breadcrumb %}Publicações / Regras{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:publicacoes_dashboard' %}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Voltar</a>
+    <button class="btn btn-primary" onclick="openCreateRuleModal();"><i class="fas fa-plus"></i> Nova Regra</button>
+  </div>
+</div>
+
+<div class="alert alert-info">
+  <i class="fas fa-info-circle"></i> <strong>Regras Configuráveis:</strong> 
+  Configure aqui os prazos para cada tipo de publicação. O sistema calculará automaticamente os prazos baseado nestas regras.
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Regras Ativas ({{ rules|length }})</h3>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Prioridade</th>
+          <th>Tipo de Evento</th>
+          <th>Descrição</th>
+          <th>Prazo</th>
+          <th>Base Legal</th>
+          <th>Auto-criar</th>
+          <th>Urgência</th>
+          <th>Status</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in rules %}
+        <tr>
+          <td><span class="badge badge-primary">{{ rule.priority }}</span></td>
+          <td><strong>{{ rule.get_event_type_display }}</strong></td>
+          <td>{{ rule.description }}</td>
+          <td>
+            <strong>{{ rule.days }}</strong> 
+            {% if rule.business_days %}
+              <span class="badge badge-success">dias úteis</span>
+            {% else %}
+              <span class="badge badge-secondary">dias corridos</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if rule.base_legal %}
+              <small class="text-muted">{{ rule.base_legal|truncatechars:30 }}</small>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if rule.auto_create_deadline %}
+              <span class="badge badge-success"><i class="fas fa-check"></i> Sim</span>
+            {% else %}
+              <span class="badge badge-secondary"><i class="fas fa-times"></i> Não</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge badge-{% if rule.auto_urgency == 'critical' %}danger{% elif rule.auto_urgency == 'urgent' %}warning{% else %}info{% endif %}">
+              {{ rule.get_auto_urgency_display }}
+            </span>
+          </td>
+          <td>
+            {% if rule.is_active %}
+              <span class="badge badge-success">Ativa</span>
+            {% else %}
+              <span class="badge badge-secondary">Inativa</span>
+            {% endif %}
+          </td>
+          <td>
+            <button class="btn btn-sm btn-info" onclick="editRule({{ rule.id }});" title="Editar">
+              <i class="fas fa-edit"></i>
+            </button>
+            <button class="btn btn-sm btn-{% if rule.is_active %}warning{% else %}success{% endif %}" 
+                    onclick="toggleRuleStatus({{ rule.id }}, {{ rule.is_active|yesno:'false,true' }});" 
+                    title="{% if rule.is_active %}Desativar{% else %}Ativar{% endif %}">
+              <i class="fas fa-{% if rule.is_active %}pause{% else %}play{% endif %}"></i>
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="deleteRule({{ rule.id }}, '{{ rule.description }}');" title="Deletar">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="9" class="text-center text-muted p-4">
+            <i class="fas fa-exclamation-triangle fa-2x mb-2"></i>
+            <p>Nenhuma regra configurada ainda.</p>
+            <p>Crie sua primeira regra para que o sistema calcule prazos automaticamente!</p>
+            <button class="btn btn-primary" onclick="openCreateRuleModal();">
+              <i class="fas fa-plus"></i> Criar Primeira Regra
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal Criar/Editar Regra -->
+<div class="modal fade" id="ruleModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="ruleModalTitle">Nova Regra de Prazo</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="rule-form" onsubmit="return saveRule(event);">
+          <input type="hidden" id="rule-id">
+          
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Tipo de Evento *</label>
+                <select class="form-control" id="rule-event-type" required>
+                  <option value="">Selecione...</option>
+                  <option value="citacao">Citação</option>
+                  <option value="intimacao">Intimação</option>
+                  <option value="sentenca">Sentença</option>
+                  <option value="acordao">Acórdão</option>
+                  <option value="decisao">Decisão Interlocutória</option>
+                  <option value="despacho">Despacho</option>
+                  <option value="edital">Edital</option>
+                  <option value="other">Outro</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Prioridade</label>
+                <input type="number" class="form-control" id="rule-priority" value="0" min="0" max="100">
+                <small class="text-muted">Maior número = maior prioridade</small>
+              </div>
+            </div>
+          </div>
+          
+          <div class="form-group">
+            <label>Descrição *</label>
+            <input type="text" class="form-control" id="rule-description" required placeholder="Ex: Citação Cível - CPC">
+          </div>
+          
+          <div class="form-group">
+            <label>Base Legal</label>
+            <textarea class="form-control" id="rule-base-legal" rows="2" placeholder="Ex: CPC Art. 231, CLT Art. 841"></textarea>
+          </div>
+          
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Quantidade de Dias *</label>
+                <input type="number" class="form-control" id="rule-days" required min="1" max="999" value="15">
+              </div>
+            </div>
+            
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Tipo de Dias</label>
+                <select class="form-control" id="rule-business-days">
+                  <option value="true" selected>Dias Úteis</option>
+                  <option value="false">Dias Corridos</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Urgência Automática</label>
+                <select class="form-control" id="rule-auto-urgency">
+                  <option value="normal" selected>Normal</option>
+                  <option value="urgent">Urgente</option>
+                  <option value="critical">Crítica</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>&nbsp;</label>
+                <div class="form-check">
+                  <input type="checkbox" class="form-check-input" id="rule-auto-create" checked>
+                  <label class="form-check-label" for="rule-auto-create">
+                    Criar prazo automaticamente
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="alert alert-warning">
+            <i class="fas fa-exclamation-triangle"></i> 
+            <strong>Atenção:</strong> Estas regras afetam o cálculo automático de prazos. 
+            Verifique sempre a base legal aplicável ao seu caso!
+          </div>
+          
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save"></i> Salvar Regra
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function openCreateRuleModal() {
+  document.getElementById('rule-id').value = '';
+  document.getElementById('rule-event-type').value = '';
+  document.getElementById('rule-description').value = '';
+  document.getElementById('rule-base-legal').value = '';
+  document.getElementById('rule-days').value = '15';
+  document.getElementById('rule-business-days').value = 'true';
+  document.getElementById('rule-auto-urgency').value = 'normal';
+  document.getElementById('rule-auto-create').checked = true;
+  document.getElementById('rule-priority').value = '0';
+  document.getElementById('ruleModalTitle').textContent = 'Nova Regra de Prazo';
+  $('#ruleModal').modal('show');
+}
+
+function saveRule(e) {
+  e.preventDefault();
+  
+  const data = {
+    event_type: document.getElementById('rule-event-type').value,
+    description: document.getElementById('rule-description').value,
+    base_legal: document.getElementById('rule-base-legal').value,
+    days: parseInt(document.getElementById('rule-days').value),
+    business_days: document.getElementById('rule-business-days').value === 'true',
+    auto_urgency: document.getElementById('rule-auto-urgency').value,
+    auto_create_deadline: document.getElementById('rule-auto-create').checked,
+    priority: parseInt(document.getElementById('rule-priority').value) || 0
+  };
+  
+  fetch('/app/publicacoes/regras/create/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCookie('csrftoken')
+    },
+    body: JSON.stringify(data)
+  })
+  .then(r => r.json())
+  .then(result => {
+    if (result.ok) {
+      $('#ruleModal').modal('hide');
+      window.location.reload();
+    } else {
+      alert('Erro: ' + (result.error || 'Erro desconhecido'));
+    }
+  })
+  .catch(err => {
+    alert('Erro ao salvar regra: ' + err.message);
+  });
+  
+  return false;
+}
+
+function toggleRuleStatus(ruleId, newStatus) {
+  // TODO: implementar endpoint
+  alert('Funcionalidade em desenvolvimento');
+}
+
+function editRule(ruleId) {
+  // TODO: implementar endpoint de detalhes
+  alert('Funcionalidade em desenvolvimento');
+}
+
+function deleteRule(ruleId, description) {
+  if (!confirm(`Deletar a regra "${description}"?`)) return;
+  
+  // TODO: implementar endpoint de delete
+  alert('Funcionalidade em desenvolvimento');
+}
+
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,280 @@
+{% extends "portal/base.html" %}
+{% block title %}Despesas | JuridicFlow{% endblock %}
+{% block page_title %}Despesas{% endblock %}
+{% block breadcrumb %}Financeiro / Despesas{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <button class="btn btn-primary" onclick="ExpensesUI.openCreateModal(); return false;">
+      <i class="fas fa-plus"></i> Nova Despesa
+    </button>
+    <a href="{% url 'portal:financeiro_dashboard' %}" class="btn btn-secondary">
+      <i class="fas fa-chart-line"></i> Dashboard
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Filtros</h3>
+    <div class="card-tools">
+      <button type="button" class="btn btn-tool" data-card-widget="collapse">
+        <i class="fas fa-minus"></i>
+      </button>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="form-inline">
+      <input type="text" name="search" class="form-control mr-2" placeholder="Buscar" value="{{ search }}">
+      <select name="category" class="form-control mr-2">
+        <option value="">Todas categorias</option>
+        {% for value, label in category_choices %}
+          <option value="{{ value }}" {% if category == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select name="status" class="form-control mr-2">
+        <option value="">Todos status</option>
+        {% for value, label in status_choices %}
+          <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <input type="date" name="date_from" class="form-control mr-2" value="{{ date_from }}">
+      <input type="date" name="date_to" class="form-control mr-2" value="{{ date_to }}">
+      <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Filtrar</button>
+      <a href="{% url 'portal:financeiro_despesas' %}" class="btn btn-secondary ml-2">Limpar</a>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Despesas ({{ expenses.paginator.count }} total)</h3>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Título</th>
+          <th>Categoria</th>
+          <th>Fornecedor</th>
+          <th>Valor</th>
+          <th>Status</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for exp in expenses %}
+        <tr>
+          <td>{{ exp.date|date:"d/m/Y" }}</td>
+          <td><strong>{{ exp.title }}</strong></td>
+          <td>{{ exp.get_category_display }}</td>
+          <td>{{ exp.supplier|default:"—" }}</td>
+          <td>R$ {{ exp.amount|floatformat:2 }}</td>
+          <td>
+            {% if exp.status == 'paid' %}<span class="badge badge-success">Paga</span>
+            {% elif exp.status == 'pending' %}<span class="badge badge-warning">Pendente</span>
+            {% elif exp.status == 'cancelled' %}<span class="badge badge-danger">Cancelada</span>
+            {% endif %}
+          </td>
+          <td>
+            <button class="btn btn-sm btn-info" onclick="ExpensesUI.openEditModal({{ exp.id }}); return false;">
+              <i class="fas fa-edit"></i>
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="ExpensesUI.delete({{ exp.id }}, '{{ exp.title }}'); return false;">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted p-4">Nenhuma despesa encontrada.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if expenses.has_other_pages %}
+  <div class="card-footer clearfix">
+    <ul class="pagination pagination-sm m-0 float-right">
+      {% if expenses.has_previous %}
+        <li class="page-item"><a class="page-link" href="?page={{ expenses.previous_page_number }}">«</a></li>
+      {% endif %}
+      {% for num in expenses.paginator.page_range %}
+        {% if expenses.number == num %}
+          <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+        {% elif num > expenses.number|add:'-3' and num < expenses.number|add:'3' %}
+          <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+        {% endif %}
+      {% endfor %}
+      {% if expenses.has_next %}
+        <li class="page-item"><a class="page-link" href="?page={{ expenses.next_page_number }}">»</a></li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Modal Criar/Editar Despesa -->
+<div class="modal fade" id="expenseModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="expenseModalTitle">Nova Despesa</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="expense-form" onsubmit="return ExpensesUI.save(event);">
+          <input type="hidden" id="expense-id">
+          <div class="form-group">
+            <label>Título *</label>
+            <input type="text" class="form-control" id="expense-title" required>
+          </div>
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Data *</label>
+                <input type="date" class="form-control" id="expense-date" required>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Valor *</label>
+                <input type="number" class="form-control" id="expense-amount" step="0.01" required>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Categoria</label>
+                <select class="form-control" id="expense-category">
+                  {% for value, label in category_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Status</label>
+                <select class="form-control" id="expense-status">
+                  {% for value, label in status_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Fornecedor</label>
+            <input type="text" class="form-control" id="expense-supplier">
+          </div>
+          <div class="form-group">
+            <label>Referência (NF, etc)</label>
+            <input type="text" class="form-control" id="expense-reference">
+          </div>
+          <div class="form-group">
+            <label>Descrição</label>
+            <textarea class="form-control" id="expense-description" rows="2"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+const ExpensesUI = {
+  openCreateModal() {
+    document.getElementById('expense-id').value = '';
+    document.getElementById('expense-title').value = '';
+    document.getElementById('expense-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('expense-amount').value = '';
+    document.getElementById('expense-category').value = 'other';
+    document.getElementById('expense-status').value = 'pending';
+    document.getElementById('expense-supplier').value = '';
+    document.getElementById('expense-reference').value = '';
+    document.getElementById('expense-description').value = '';
+    document.getElementById('expenseModalTitle').textContent = 'Nova Despesa';
+    $('#expenseModal').modal('show');
+  },
+  
+  openEditModal(expenseId) {
+    fetch(`/app/financeiro/despesas/${expenseId}/detail/`)
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('expense-id').value = data.id;
+        document.getElementById('expense-title').value = data.title;
+        document.getElementById('expense-date').value = data.date;
+        document.getElementById('expense-amount').value = data.amount;
+        document.getElementById('expense-category').value = data.category;
+        document.getElementById('expense-status').value = data.status;
+        document.getElementById('expense-supplier').value = data.supplier;
+        document.getElementById('expense-reference').value = data.reference;
+        document.getElementById('expense-description').value = data.description;
+        document.getElementById('expenseModalTitle').textContent = 'Editar Despesa';
+        $('#expenseModal').modal('show');
+      });
+  },
+  
+  save(e) {
+    e.preventDefault();
+    const expenseId = document.getElementById('expense-id').value;
+    const data = {
+      title: document.getElementById('expense-title').value,
+      date: document.getElementById('expense-date').value,
+      amount: document.getElementById('expense-amount').value,
+      category: document.getElementById('expense-category').value,
+      status: document.getElementById('expense-status').value,
+      supplier: document.getElementById('expense-supplier').value,
+      reference: document.getElementById('expense-reference').value,
+      description: document.getElementById('expense-description').value
+    };
+    
+    const url = expenseId 
+      ? `/app/financeiro/despesas/${expenseId}/update/`
+      : '/app/financeiro/despesas/create/';
+    
+    fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+      body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(() => {
+      $('#expenseModal').modal('hide');
+      window.location.reload();
+    })
+    .catch(err => alert('Erro ao salvar: ' + err));
+    
+    return false;
+  },
+  
+  delete(expenseId, title) {
+    if (!confirm(`Deletar despesa "${title}"?`)) return;
+    
+    fetch(`/app/financeiro/despesas/${expenseId}/delete/`, {
+      method: 'POST',
+      headers: {'X-CSRFToken': getCookie('csrftoken')}
+    })
+    .then(() => window.location.reload());
+  }
+};
+
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie) {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+</script>
+{% endblock %}

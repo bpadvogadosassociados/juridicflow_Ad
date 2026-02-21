@@ -1,0 +1,55 @@
+{% extends "portal/base.html" %}
+{% block title %}Publicação {{ publication.process_cnj }} | JuridicFlow{% endblock %}
+{% block page_title %}Detalhes da Publicação{% endblock %}
+{% block breadcrumb %}Publicações / Detalhes{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:publicacoes' %}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Voltar</a>
+  </div>
+</div>
+
+<div class="row">
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Publicação Oficial (Imutável)</h3></div>
+      <div class="card-body">
+        <dl class="row">
+          <dt class="col-sm-3">Fonte:</dt><dd class="col-sm-9">{{ publication.get_source_display }}</dd>
+          <dt class="col-sm-3">Data Publicação:</dt><dd class="col-sm-9">{{ publication.publication_date|date:"d/m/Y" }}</dd>
+          <dt class="col-sm-3">Importado em:</dt><dd class="col-sm-9">{{ publication.created_at|date:"d/m/Y H:i" }} por {{ publication.imported_by.email|default:"—" }}</dd>
+          <dt class="col-sm-3">CNJ Detectado:</dt><dd class="col-sm-9">{% if publication.process_cnj %}<strong>{{ publication.process_cnj }}</strong>{% else %}<span class="text-muted">Não detectado</span>{% endif %}</dd>
+        </dl>
+        
+        <hr>
+        <h5>Texto Completo:</h5>
+        <div class="p-3" style="background: #f8f9fa; border-left: 3px solid #007bff;">
+          {{ publication.raw_text|linebreaks }}
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="col-md-4">
+    <div class="card card-primary">
+      <div class="card-header"><h3 class="card-title">Eventos Jurídicos</h3></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for e in events %}
+          <li class="list-group-item">
+            <strong>{{ e.get_event_type_display }}</strong>
+            <span class="badge badge-{% if e.urgency == 'critical' %}danger{% elif e.urgency == 'urgent' %}warning{% else %}secondary{% endif %} float-right">{{ e.get_urgency_display }}</span>
+            <br>
+            <small>Status: {{ e.get_status_display }}</small><br>
+            {% if e.deadline %}<small>Prazo: {{ e.deadline.due_date|date:"d/m/Y" }} ({{ e.days_until_deadline }} dias)</small><br>{% endif %}
+            {% if e.assigned_to %}<small>Responsável: {{ e.assigned_to.get_full_name|default:e.assigned_to.email }}</small>{% endif %}
+          </li>
+          {% empty %}
+          <li class="list-group-item text-muted">Nenhum evento criado.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

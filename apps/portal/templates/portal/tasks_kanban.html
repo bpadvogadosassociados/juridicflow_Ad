@@ -1,0 +1,368 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Kanban | JuridicFlow{% endblock %}
+{% block page_title %}Kanban{% endblock %}
+{% block breadcrumb %}Tarefas / Kanban{% endblock %}
+{% block extra_css %}
+<style>
+.kanban-wrapper { display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 1rem; }
+.kanban-col { min-width: 260px; max-width: 300px; flex-shrink: 0; }
+.kanban-col-header {
+  border-radius: 6px 6px 0 0; padding: .5rem .75rem;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.kanban-col-header .badge-count {
+  background: rgba(255,255,255,.25); color: #fff;
+  border-radius: 12px; padding: 1px 8px; font-size: .75rem;
+}
+.kanban-cards { min-height: 80px; }
+.kanban-card {
+  background: #2d3748; border-radius: 6px;
+  padding: .6rem .75rem; margin-bottom: .5rem;
+  cursor: grab; border-left: 3px solid transparent;
+  transition: box-shadow .15s;
+}
+.kanban-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.kanban-card.dragging { opacity: .5; cursor: grabbing; }
+.kanban-card.drag-over { box-shadow: 0 0 0 2px #007bff inset; }
+.kanban-card .card-meta { font-size: .72rem; color: #a0aec0; margin-top: .3rem; }
+.kanban-card .card-meta .badge { font-size: .65rem; }
+.drop-zone {
+  border: 2px dashed rgba(255,255,255,.1); border-radius: 6px;
+  min-height: 60px; transition: border-color .15s;
+}
+.drop-zone.active { border-color: #007bff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12 d-flex align-items-center">
+    <a href="{% url 'portal:tarefas' %}" class="btn btn-secondary mr-2">
+      <i class="fas fa-list"></i> Ver Lista
+    </a>
+    <button class="btn btn-primary mr-2" onclick="KanbanV2.openCreateModal();">
+      <i class="fas fa-plus"></i> Nova Tarefa
+    </button>
+    <small class="text-muted ml-2">Arraste os cards para mudar o status</small>
+  </div>
+</div>
+
+<div class="kanban-wrapper" id="kanban-board">
+  <!-- preenchido por JS -->
+  <div class="text-muted p-3" id="kanban-loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>
+</div>
+
+<!-- Modal criação rápida -->
+<div class="modal fade" id="kanbanCreateModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Nova Tarefa</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="kanban-create-form" onsubmit="return KanbanV2.saveCreate(event);">
+          <div class="form-group">
+            <label>Título *</label>
+            <input type="text" class="form-control" id="kc-title" required>
+          </div>
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Status inicial</label>
+                <select class="form-control" id="kc-status">
+                  <option value="todo">A fazer</option>
+                  <option value="doing">Em andamento</option>
+                </select>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Prioridade</label>
+                <select class="form-control" id="kc-priority">
+                  <option value="low">Baixa</option>
+                  <option value="medium" selected>Média</option>
+                  <option value="high">Alta</option>
+                  <option value="urgent">Urgente</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Data Limite</label>
+            <input type="date" class="form-control" id="kc-due-date">
+          </div>
+          <button type="submit" class="btn btn-primary">Criar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal editar card -->
+<div class="modal fade" id="kanbanEditModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Editar Tarefa</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="kanban-edit-form" onsubmit="return KanbanV2.saveEdit(event);">
+          <input type="hidden" id="ke-id">
+          <div class="form-group">
+            <label>Título *</label>
+            <input type="text" class="form-control" id="ke-title" required>
+          </div>
+          <div class="form-group">
+            <label>Descrição (Markdown)</label>
+            <textarea class="form-control" id="ke-description" rows="5"></textarea>
+          </div>
+          <div class="row">
+            <div class="col-md-4">
+              <div class="form-group">
+                <label>Status</label>
+                <select class="form-control" id="ke-status">
+                  <option value="todo">A fazer</option>
+                  <option value="doing">Em andamento</option>
+                  <option value="blocked">Bloqueada</option>
+                  <option value="done">Concluída</option>
+                </select>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="form-group">
+                <label>Prioridade</label>
+                <select class="form-control" id="ke-priority">
+                  <option value="low">Baixa</option>
+                  <option value="medium">Média</option>
+                  <option value="high">Alta</option>
+                  <option value="urgent">Urgente</option>
+                </select>
+              </div>
+            </div>
+            <div class="col-md-4">
+              <div class="form-group">
+                <label>Data Limite</label>
+                <input type="date" class="form-control" id="ke-due-date">
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <button type="submit" class="btn btn-primary">Salvar</button>
+              <a href="{% url 'portal:tarefas' %}" class="btn btn-secondary ml-2">Ver Lista Completa</a>
+            </div>
+            <div class="form-group col-md-6 text-right">
+              <button type="button" class="btn btn-outline-danger btn-sm" onclick="KanbanV2.deleteTask();">
+                <i class="fas fa-trash"></i> Deletar
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/jquery-ui/jquery-ui.min.js' %}"></script>
+<script>
+var KanbanV2 = {
+  _editingId: null,
+
+  PRIORITY_COLORS: {low:'#28a745', medium:'#ffc107', high:'#fd7e14', urgent:'#dc3545'},
+  COL_COLORS: {todo:'#6c757d', doing:'#007bff', blocked:'#dc3545', done:'#28a745'},
+
+  init: function() {
+    this.load();
+  },
+
+  load: function() {
+    fetch('/app/tarefas/api/board/')
+      .then(function(r) { return r.json(); })
+      .then(function(d) { KanbanV2.render(d.columns); });
+  },
+
+  render: function(columns) {
+    var board = document.getElementById('kanban-board');
+    board.innerHTML = '';
+    columns.forEach(function(col) {
+      var el = document.createElement('div');
+      el.className = 'kanban-col';
+      el.innerHTML = KanbanV2.buildColumn(col);
+      board.appendChild(el);
+    });
+    this.initDragDrop();
+  },
+
+  buildColumn: function(col) {
+    var color = KanbanV2.COL_COLORS[col.status] || '#6c757d';
+    var cards = col.tasks.map(function(t) { return KanbanV2.buildCard(t); }).join('');
+    return '<div class="card mb-0">'
+      + '<div class="kanban-col-header" style="background:' + color + ';">'
+      + '<span>' + col.label + '</span>'
+      + '<span class="badge-count">' + col.tasks.length + '</span>'
+      + '</div>'
+      + '<div class="card-body p-2 kanban-cards drop-zone" data-status="' + col.status + '">'
+      + (cards || '<div class="text-muted text-center py-2" style="font-size:.8rem;">Vazio</div>')
+      + '</div>'
+      + '</div>';
+  },
+
+  buildCard: function(t) {
+    var borderColor = KanbanV2.PRIORITY_COLORS[t.priority] || '#6c757d';
+    var overdueBg = (t.is_overdue && t.status !== 'done') ? 'border-top: 1px solid #dc3545;' : '';
+    var dueTxt = '';
+    if (t.due_date) {
+      var days = t.days_until_due;
+      if (t.is_overdue && t.status !== 'done') dueTxt = '<span class="badge badge-danger">' + Math.abs(days) + 'd atraso</span>';
+      else if (days === 0) dueTxt = '<span class="badge badge-warning">Hoje</span>';
+      else if (days <= 3) dueTxt = '<span class="badge badge-info">' + days + 'd</span>';
+      else dueTxt = '<span class="text-muted">' + t.due_date.split('-').reverse().join('/') + '</span>';
+    }
+    var assigned = t.assigned_to ? '<i class="fas fa-user mr-1"></i>' + t.assigned_to.name : '';
+    return '<div class="kanban-card" data-id="' + t.id + '" data-status="' + t.status + '" '
+      + 'style="border-left-color:' + borderColor + ';' + overdueBg + '"'
+      + ' onclick="KanbanV2.openEditModal(' + t.id + ');" draggable="true">'
+      + '<div>' + t.title + '</div>'
+      + '<div class="card-meta d-flex justify-content-between align-items-center mt-1">'
+      + '<span>' + dueTxt + '</span>'
+      + '<span>' + assigned + '</span>'
+      + '</div>'
+      + '</div>';
+  },
+
+  initDragDrop: function() {
+    var cards  = document.querySelectorAll('.kanban-card');
+    var zones  = document.querySelectorAll('.drop-zone');
+    var dragging = null;
+
+    cards.forEach(function(card) {
+      card.addEventListener('dragstart', function(e) {
+        dragging = card;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.stopPropagation();
+      });
+      card.addEventListener('dragend', function() {
+        card.classList.remove('dragging');
+        document.querySelectorAll('.drop-zone').forEach(function(z) { z.classList.remove('active'); });
+        dragging = null;
+      });
+    });
+
+    zones.forEach(function(zone) {
+      zone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        zone.classList.add('active');
+      });
+      zone.addEventListener('dragleave', function() {
+        zone.classList.remove('active');
+      });
+      zone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        zone.classList.remove('active');
+        if (!dragging) return;
+        var newStatus = zone.dataset.status;
+        var taskId = dragging.dataset.id;
+        var order = zone.querySelectorAll('.kanban-card').length;
+        KanbanV2.moveCard(taskId, newStatus, order);
+      });
+    });
+  },
+
+  moveCard: function(taskId, newStatus, order) {
+    fetch('/app/tarefas/api/move/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+      body: JSON.stringify({task_id: taskId, status: newStatus, kanban_order: order})
+    }).then(function() { KanbanV2.load(); });
+  },
+
+  openCreateModal: function() {
+    document.getElementById('kc-title').value = '';
+    document.getElementById('kc-status').value = 'todo';
+    document.getElementById('kc-priority').value = 'medium';
+    document.getElementById('kc-due-date').value = '';
+    $('#kanbanCreateModal').modal('show');
+  },
+
+  saveCreate: function(e) {
+    e.preventDefault();
+    var payload = {
+      title:    document.getElementById('kc-title').value,
+      status:   document.getElementById('kc-status').value,
+      priority: document.getElementById('kc-priority').value,
+      due_date: document.getElementById('kc-due-date').value || null
+    };
+    fetch('/app/tarefas/api/create/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+      body: JSON.stringify(payload)
+    }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) { $('#kanbanCreateModal').modal('hide'); KanbanV2.load(); }
+      else { alert('Erro: ' + (d.error || 'erro')); }
+    });
+    return false;
+  },
+
+  openEditModal: function(taskId) {
+    KanbanV2._editingId = taskId;
+    fetch('/app/tarefas/api/' + taskId + '/detail/')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var t = d.task;
+        document.getElementById('ke-id').value = t.id;
+        document.getElementById('ke-title').value = t.title;
+        document.getElementById('ke-description').value = t.description;
+        document.getElementById('ke-status').value = t.status;
+        document.getElementById('ke-priority').value = t.priority;
+        document.getElementById('ke-due-date').value = t.due_date || '';
+        $('#kanbanEditModal').modal('show');
+      });
+  },
+
+  saveEdit: function(e) {
+    e.preventDefault();
+    var id = document.getElementById('ke-id').value;
+    var payload = {
+      title:       document.getElementById('ke-title').value,
+      description: document.getElementById('ke-description').value,
+      status:      document.getElementById('ke-status').value,
+      priority:    document.getElementById('ke-priority').value,
+      due_date:    document.getElementById('ke-due-date').value || null
+    };
+    fetch('/app/tarefas/api/' + id + '/update/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+      body: JSON.stringify(payload)
+    }).then(function() { $('#kanbanEditModal').modal('hide'); KanbanV2.load(); });
+    return false;
+  },
+
+  deleteTask: function() {
+    var id = document.getElementById('ke-id').value;
+    var title = document.getElementById('ke-title').value;
+    if (!confirm('Deletar "' + title + '"?')) return;
+    fetch('/app/tarefas/api/' + id + '/delete/', {
+      method: 'POST', headers: {'X-CSRFToken': getCsrf()}
+    }).then(function() { $('#kanbanEditModal').modal('hide'); KanbanV2.load(); });
+  }
+};
+
+function getCsrf() {
+  var c = document.cookie.split(';');
+  for (var i = 0; i < c.length; i++) {
+    var kv = c[i].trim().split('=');
+    if (kv[0] === 'csrftoken') return decodeURIComponent(kv[1]);
+  }
+  return '';
+}
+
+document.addEventListener('DOMContentLoaded', function() { KanbanV2.init(); });
+</script>
+{% endblock %}

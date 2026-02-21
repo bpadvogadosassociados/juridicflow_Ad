@@ -1,0 +1,76 @@
+{% extends "portal/base.html" %}
+{% block title %}Documentos | JuridicFlow{% endblock %}
+{% block page_title %}Documentos{% endblock %}
+{% block breadcrumb %}Documentos{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:documentos_dashboard' %}" class="btn btn-secondary"><i class="fas fa-chart-line"></i> Dashboard</a>
+    <a href="{% url 'portal:documento_upload' %}" class="btn btn-primary"><i class="fas fa-upload"></i> Upload</a>
+    <a href="{% url 'portal:pastas' %}" class="btn btn-info"><i class="fas fa-folder"></i> Pastas</a>
+  </div>
+</div>
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Filtros</h3><div class="card-tools"><button type="button" class="btn btn-tool" data-card-widget="collapse"><i class="fas fa-minus"></i></button></div></div>
+  <div class="card-body">
+    <form method="get" class="form-inline">
+      <input type="text" name="search" class="form-control mr-2" placeholder="Buscar" value="{{ search }}">
+      <select name="category" class="form-control mr-2"><option value="">Categoria</option>{% for v, l in category_choices %}<option value="{{ v }}" {% if category_filter == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      <select name="status" class="form-control mr-2"><option value="">Status</option>{% for v, l in status_choices %}<option value="{{ v }}" {% if status_filter == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      <select name="tag" class="form-control mr-2"><option value="">Tag</option>{% for tag in all_tags %}<option value="{{ tag }}" {% if tag_filter == tag %}selected{% endif %}>{{ tag }}</option>{% endfor %}</select>
+      <select name="folder" class="form-control mr-2"><option value="">Pasta</option>{% for f in folders %}<option value="{{ f.id }}" {% if folder_id == f.id|stringformat:"s" %}selected{% endif %}>{{ f.name }}</option>{% endfor %}</select>
+      <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i></button>
+      <a href="{% url 'portal:documentos' %}" class="btn btn-secondary ml-2">Limpar</a>
+    </form>
+  </div>
+</div>
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Documentos ({{ documents.paginator.count }})</h3></div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead><tr><th>Título</th><th>Categoria</th><th>Status</th><th>Tamanho</th><th>Upload</th><th>Ações</th></tr></thead>
+      <tbody>
+      {% for d in documents %}
+      <tr>
+        <td>
+          <i class="far fa-file-{{ d.file_extension }}"></i>
+          <a href="{% url 'portal:documento_detail' d.id %}"><strong>{{ d.title }}</strong></a>
+          {% if d.process %}<br><small class="text-muted">Processo: {{ d.process.number }}</small>{% endif %}
+          {% if d.is_confidential %}<span class="badge badge-danger ml-2">Confidencial</span>{% endif %}
+        </td>
+        <td>{{ d.get_category_display }}</td>
+        <td><span class="badge badge-{% if d.status == 'approved' %}success{% elif d.status == 'review' %}warning{% else %}secondary{% endif %}">{{ d.get_status_display }}</span></td>
+        <td>{{ d.file_size_mb }} MB</td>
+        <td>{{ d.created_at|date:"d/m/Y" }}</td>
+        <td>
+          <a href="{% url 'portal:documento_detail' d.id %}" class="btn btn-sm btn-info"><i class="fas fa-eye"></i></a>
+          <a href="{% url 'portal:documento_download' d.id %}" class="btn btn-sm btn-success"><i class="fas fa-download"></i></a>
+          <button class="btn btn-sm btn-danger" onclick="deleteDoc({{ d.id }}, '{{ d.title }}');"><i class="fas fa-trash"></i></button>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="text-center text-muted p-4">Nenhum documento.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if documents.has_other_pages %}
+  <div class="card-footer clearfix">
+    <ul class="pagination pagination-sm m-0 float-right">
+      {% if documents.has_previous %}<li class="page-item"><a class="page-link" href="?page={{ documents.previous_page_number }}">«</a></li>{% endif %}
+      {% for num in documents.paginator.page_range %}{% if documents.number == num %}<li class="page-item active"><span class="page-link">{{ num }}</span></li>{% elif num > documents.number|add:'-3' and num < documents.number|add:'3' %}<li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>{% endif %}{% endfor %}
+      {% if documents.has_next %}<li class="page-item"><a class="page-link" href="?page={{ documents.next_page_number }}">»</a></li>{% endif %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function deleteDoc(id, title) {
+  if (!confirm(`Deletar ${title}?`)) return;
+  fetch(`/app/documentos/${id}/delete/`, {method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}}).then(() => window.location.reload());
+}
+function getCookie(name) {let cookieValue = null; if (document.cookie) {const cookies = document.cookie.split(';'); for (let i = 0; i < cookies.length; i++) {const cookie = cookies[i].trim(); if (cookie.substring(0, name.length + 1) === (name + '=')) {cookieValue = decodeURIComponent(cookie.substring(name.length + 1)); break;}}} return cookieValue;}
+</script>
+{% endblock %}

@@ -1,0 +1,214 @@
+{% extends "portal/base.html" %}
+{% block title %}Filtros de Publicações | JuridicFlow{% endblock %}
+{% block page_title %}Filtros / Palavras-chave{% endblock %}
+{% block breadcrumb %}Publicações / Filtros{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:publicacoes_dashboard' %}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Voltar</a>
+    <button class="btn btn-primary" onclick="openCreateFilterModal();"><i class="fas fa-plus"></i> Novo Filtro</button>
+  </div>
+</div>
+
+<div class="alert alert-info">
+  <i class="fas fa-info-circle"></i> <strong>MVP Simplificado:</strong> 
+  Matching primário por CNJ, secundário por OAB/CPF/CNPJ. Keywords são auxiliares.
+</div>
+
+<div class="row">
+  {% for type_value, type_label in filter_types %}
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">
+          <i class="fas fa-{% if type_value == 'cnj' %}gavel{% elif type_value == 'oab' %}id-badge{% elif type_value == 'cpf' %}user{% elif type_value == 'cnpj' %}building{% else %}tag{% endif %}"></i>
+          {{ type_label }}
+        </h3>
+        <div class="card-tools">
+          <span class="badge badge-primary">
+            {{ filters|filter_by_type:type_value|length }}
+          </span>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for f in filters %}
+            {% if f.filter_type == type_value %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              <div>
+                <strong>{{ f.value }}</strong>
+                {% if f.description %}<br><small class="text-muted">{{ f.description }}</small>{% endif %}
+                <br>
+                <small class="text-muted">
+                  Matches: {{ f.match_count }}
+                  {% if not f.is_active %} | <span class="text-danger">Inativo</span>{% endif %}
+                </small>
+              </div>
+              <div class="btn-group btn-group-sm">
+                <button class="btn btn-{% if f.is_active %}warning{% else %}success{% endif %}" 
+                        onclick="toggleFilterStatus({{ f.id }}, {{ f.is_active|yesno:'false,true' }});">
+                  <i class="fas fa-{% if f.is_active %}pause{% else %}play{% endif %}"></i>
+                </button>
+                <button class="btn btn-danger" onclick="deleteFilter({{ f.id }}, '{{ f.value }}');">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </li>
+            {% endif %}
+          {% endfor %}
+          
+          {% if not filters|filter_by_type:type_value %}
+          <li class="list-group-item text-muted text-center">
+            Nenhum filtro deste tipo ainda.
+          </li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Modal Criar Filtro -->
+<div class="modal fade" id="filterModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Novo Filtro</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="filter-form" onsubmit="return saveFilter(event);">
+          <div class="form-group">
+            <label>Tipo *</label>
+            <select class="form-control" id="filter-type" required onchange="updateFilterHelp();">
+              <option value="">Selecione...</option>
+              <option value="cnj">Número CNJ</option>
+              <option value="oab">OAB</option>
+              <option value="cpf">CPF</option>
+              <option value="cnpj">CNPJ</option>
+              <option value="keyword">Palavra-chave (auxiliar)</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>Valor *</label>
+            <input type="text" class="form-control" id="filter-value" required placeholder="">
+            <small class="text-muted" id="filter-help">Selecione o tipo primeiro</small>
+          </div>
+          
+          <div class="form-group">
+            <label>Descrição</label>
+            <input type="text" class="form-control" id="filter-description" placeholder="Ex: Processo cliente XYZ">
+          </div>
+          
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save"></i> Salvar Filtro
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function openCreateFilterModal() {
+  document.getElementById('filter-type').value = '';
+  document.getElementById('filter-value').value = '';
+  document.getElementById('filter-description').value = '';
+  $('#filterModal').modal('show');
+}
+
+function updateFilterHelp() {
+  const type = document.getElementById('filter-type').value;
+  const help = document.getElementById('filter-help');
+  const input = document.getElementById('filter-value');
+  
+  const helps = {
+    'cnj': 'Ex: 0001234-56.2026.8.26.0100',
+    'oab': 'Ex: 123.456/SP',
+    'cpf': 'Ex: 123.456.789-00',
+    'cnpj': 'Ex: 12.345.678/0001-00',
+    'keyword': 'Ex: Silva & Associados'
+  };
+  
+  help.textContent = helps[type] || 'Selecione o tipo primeiro';
+  input.placeholder = helps[type] || '';
+}
+
+function saveFilter(e) {
+  e.preventDefault();
+  
+  const data = {
+    filter_type: document.getElementById('filter-type').value,
+    value: document.getElementById('filter-value').value.trim(),
+    description: document.getElementById('filter-description').value.trim()
+  };
+  
+  if (!data.value) {
+    alert('Valor é obrigatório!');
+    return false;
+  }
+  
+  fetch('/app/publicacoes/filtros/create/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCookie('csrftoken')
+    },
+    body: JSON.stringify(data)
+  })
+  .then(r => r.json())
+  .then(result => {
+    if (result.ok) {
+      $('#filterModal').modal('hide');
+      window.location.reload();
+    } else {
+      alert('Erro: ' + (result.error || 'Erro desconhecido'));
+    }
+  })
+  .catch(err => {
+    alert('Erro ao salvar filtro: ' + err.message);
+  });
+  
+  return false;
+}
+
+function toggleFilterStatus(filterId, newStatus) {
+  // TODO: implementar endpoint
+  alert('Funcionalidade em desenvolvimento');
+}
+
+function deleteFilter(filterId, value) {
+  if (!confirm(`Deletar filtro "${value}"?`)) return;
+  
+  // TODO: implementar endpoint
+  alert('Funcionalidade em desenvolvimento');
+}
+
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+</script>
+
+<style>
+.card-header .badge {
+  font-size: 1rem;
+}
+</style>
+
+{% endblock %}

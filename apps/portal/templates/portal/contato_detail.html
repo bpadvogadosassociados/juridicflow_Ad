@@ -1,0 +1,116 @@
+{% extends "portal/base.html" %}
+{% block title %}{{ customer.name }} | JuridicFlow{% endblock %}
+{% block page_title %}{{ customer.name }}{% endblock %}
+{% block breadcrumb %}Contatos / {{ customer.name }}{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:contatos' %}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Voltar</a>
+    <a href="{% url 'portal:contato_edit' customer.id %}" class="btn btn-primary"><i class="fas fa-edit"></i> Editar</a>
+    <button class="btn btn-danger" onclick="if(confirm('Deletar?')) {fetch('/app/contatos/{{ customer.id }}/delete/', {method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}}).then(() => window.location.href='{% url "portal:contatos" %}');}"><i class="fas fa-trash"></i> Deletar</button>
+  </div>
+</div>
+<div class="row">
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title"><i class="fas fa-user"></i> Dados do Contato</h3></div>
+      <div class="card-body">
+        <dl class="row">
+          <dt class="col-sm-3">Nome:</dt><dd class="col-sm-9"><strong>{{ customer.name }}</strong></dd>
+          <dt class="col-sm-3">Tipo:</dt><dd class="col-sm-9">{{ customer.get_type_display }}</dd>
+          <dt class="col-sm-3">Status:</dt><dd class="col-sm-9"><span class="badge badge-{% if customer.status == 'client' %}success{% elif customer.status == 'lead' %}warning{% else %}secondary{% endif %}">{{ customer.get_status_display }}</span></dd>
+          {% if customer.document %}<dt class="col-sm-3">CPF/CNPJ:</dt><dd class="col-sm-9">{{ customer.document }}</dd>{% endif %}
+          {% if customer.email %}<dt class="col-sm-3">Email:</dt><dd class="col-sm-9"><a href="mailto:{{ customer.email }}">{{ customer.email }}</a></dd>{% endif %}
+          {% if customer.phone %}<dt class="col-sm-3">Telefone:</dt><dd class="col-sm-9">{{ customer.phone }}</dd>{% endif %}
+          {% if customer.whatsapp %}<dt class="col-sm-3">WhatsApp:</dt><dd class="col-sm-9"><a href="https://wa.me/{{ customer.whatsapp }}" target="_blank">{{ customer.whatsapp }}</a></dd>{% endif %}
+          {% if customer.full_address %}<dt class="col-sm-3">Endereço:</dt><dd class="col-sm-9">{{ customer.full_address }}</dd>{% endif %}
+          {% if customer.tags %}<dt class="col-sm-3">Tags:</dt><dd class="col-sm-9">{% for tag in customer.tag_list %}<span class="badge badge-info">{{ tag }}</span> {% endfor %}</dd>{% endif %}
+        </dl>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Histórico de Interações</h3>
+        <div class="card-tools"><button class="btn btn-sm btn-primary" onclick="$('#interactionModal').modal('show');"><i class="fas fa-plus"></i> Nova</button></div>
+      </div>
+      <div class="card-body p-0">
+        <table class="table">
+          <tbody>
+          {% for i in interactions %}
+          <tr>
+            <td><i class="fas fa-{{ i.type }}"></i> {{ i.get_type_display }}</td>
+            <td><strong>{{ i.subject }}</strong><br><small>{{ i.description|truncatewords:15 }}</small></td>
+            <td>{{ i.date|date:"d/m/Y H:i" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3" class="text-center text-muted p-3">Sem interações.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card card-primary">
+      <div class="card-header"><h3 class="card-title">Resumo</h3></div>
+      <div class="card-body">
+        <dl>
+          <dt>Origem</dt><dd>{{ customer.get_origin_display }}</dd>
+          <dt>Processos</dt><dd>{{ process_parties.count }}</dd>
+          <dt>Contratos</dt><dd>{{ agreements.count }}</dd>
+          <dt>Cadastrado em</dt><dd>{{ customer.created_at|date:"d/m/Y" }}</dd>
+          {% if customer.responsible %}<dt>Responsável</dt><dd>{% if customer.responsible.get_full_name %}{{ customer.responsible.get_full_name }}{% else %}{{ customer.responsible.email }}{% endif %}</dd>{% endif %}
+        </dl>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Processos Vinculados</h3></div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+        {% for pp in process_parties %}
+          <li class="list-group-item"><a href="{% url 'portal:processo_detail' pp.process.id %}">{{ pp.process.number }}</a><br><small>{{ pp.get_role_display }}</small></li>
+        {% empty %}
+          <li class="list-group-item text-muted">Nenhum processo.</li>
+        {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="interactionModal">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Nova Interação</h5><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button></div>
+      <div class="modal-body">
+        <form id="interaction-form" onsubmit="return saveInteraction(event);">
+          <div class="form-group"><label>Tipo</label><select class="form-control" id="int-type">{% for v, l in interaction_type_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select></div>
+          <div class="row"><div class="col-md-6"><div class="form-group"><label>Data</label><input type="date" class="form-control" id="int-date" required></div></div><div class="col-md-6"><div class="form-group"><label>Hora</label><input type="time" class="form-control" id="int-time" required></div></div></div>
+          <div class="form-group"><label>Assunto</label><input type="text" class="form-control" id="int-subject" required></div>
+          <div class="form-group"><label>Descrição</label><textarea class="form-control" id="int-description" rows="3" required></textarea></div>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function saveInteraction(e) {
+  e.preventDefault();
+  fetch('/app/contatos/{{ customer.id }}/interaction/', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+    body: JSON.stringify({
+      type: document.getElementById('int-type').value,
+      date: document.getElementById('int-date').value,
+      time: document.getElementById('int-time').value,
+      subject: document.getElementById('int-subject').value,
+      description: document.getElementById('int-description').value
+    })
+  }).then(() => {$('#interactionModal').modal('hide'); window.location.reload();});
+  return false;
+}
+function getCookie(name) {let cookieValue = null; if (document.cookie) {const cookies = document.cookie.split(';'); for (let i = 0; i < cookies.length; i++) {const cookie = cookies[i].trim(); if (cookie.substring(0, name.length + 1) === (name + '=')) {cookieValue = decodeURIComponent(cookie.substring(name.length + 1)); break;}}} return cookieValue;}
+</script>
+{% endblock %}

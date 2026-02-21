@@ -1,0 +1,264 @@
+{% extends "portal/base.html" %}
+{% block page_title %}Contrato: {{ agreement.title }}{% endblock %}
+{% block breadcrumb %}Financeiro / Contratos / {{ agreement.id }}{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-md-8">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-file-contract"></i> Dados do Contrato</h3>
+      </div>
+      <div class="card-body">
+        <dl class="row">
+          <dt class="col-sm-3">Cliente:</dt>
+          <dd class="col-sm-9"><strong>{{ agreement.customer.name }}</strong></dd>
+          
+          <dt class="col-sm-3">Título:</dt>
+          <dd class="col-sm-9">{{ agreement.title }}</dd>
+          
+          <dt class="col-sm-3">Valor:</dt>
+          <dd class="col-sm-9"><strong class="text-success">R$ {{ agreement.amount|floatformat:2 }}</strong></dd>
+          
+          <dt class="col-sm-3">Tipo:</dt>
+          <dd class="col-sm-9">{{ agreement.get_billing_type_display }}</dd>
+          
+          <dt class="col-sm-3">Status:</dt>
+          <dd class="col-sm-9">
+            {% if agreement.status == 'active' %}<span class="badge badge-success">Ativo</span>
+            {% elif agreement.status == 'draft' %}<span class="badge badge-secondary">Rascunho</span>
+            {% else %}<span class="badge badge-info">{{ agreement.get_status_display }}</span>{% endif %}
+          </dd>
+          
+          {% if agreement.process %}
+          <dt class="col-sm-3">Processo:</dt>
+          <dd class="col-sm-9">
+            <a href="{% url 'portal:processo_detail' agreement.process.id %}">{{ agreement.process.number }}</a>
+          </dd>
+          {% endif %}
+          
+          {% if agreement.description %}
+          <dt class="col-sm-3">Descrição:</dt>
+          <dd class="col-sm-9">{{ agreement.description }}</dd>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+    
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Faturas</h3>
+        <div class="card-tools">
+          <button class="btn btn-sm btn-primary" onclick="FinanceUI.openInvoiceModal({{ agreement.id }}); return false;">
+            <i class="fas fa-plus"></i> Nova Fatura
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <table class="table">
+          <thead>
+            <tr><th>Número</th><th>Emissão</th><th>Vencimento</th><th>Valor</th><th>Pago</th><th>Saldo</th><th>Status</th><th>Ações</th></tr>
+          </thead>
+          <tbody>
+            {% for inv in invoices %}
+            <tr>
+              <td><strong>{{ inv.number }}</strong></td>
+              <td>{{ inv.issue_date|date:"d/m/Y" }}</td>
+              <td>{{ inv.due_date|date:"d/m/Y" }}</td>
+              <td>R$ {{ inv.amount|floatformat:2 }}</td>
+              <td>R$ {{ inv.paid_amount|floatformat:2 }}</td>
+              <td>R$ {{ inv.balance|floatformat:2 }}</td>
+              <td>
+                {% if inv.status == 'paid' %}<span class="badge badge-success">Paga</span>
+                {% elif inv.status == 'overdue' %}<span class="badge badge-danger">Vencida</span>
+                {% else %}<span class="badge badge-warning">{{ inv.get_status_display }}</span>{% endif %}
+              </td>
+              <td>
+                {% if inv.balance > 0 %}
+                <button class="btn btn-sm btn-success" onclick="FinanceUI.registerPayment({{ inv.id }}); return false;">
+                  <i class="fas fa-money-bill"></i>
+                </button>
+                {% endif %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="8" class="text-center text-muted p-3">Nenhuma fatura ainda.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+  <div class="col-md-4">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Resumo Financeiro</h3></div>
+      <div class="card-body">
+        <dl>
+          <dt>Valor do Contrato</dt>
+          <dd><strong class="text-primary">R$ {{ agreement.amount|floatformat:2 }}</strong></dd>
+          <dt>Total Faturado</dt>
+          <dd>R$ {{ total_invoiced|floatformat:2 }}</dd>
+          <dt>Total Recebido</dt>
+          <dd class="text-success">R$ {{ total_received|floatformat:2 }}</dd>
+          <dt>Saldo Pendente</dt>
+          <dd {% if balance > 0 %}class="text-danger"{% else %}class="text-success"{% endif %}>
+            R$ {{ balance|floatformat:2 }}
+          </dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Nova Fatura -->
+<div class="modal fade" id="invoiceModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Nova Fatura</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="invoice-form" onsubmit="return FinanceUI.createInvoice(event);">
+          <input type="hidden" id="invoice-agreement-id">
+          <div class="form-group">
+            <label>Número *</label>
+            <input type="text" class="form-control" id="invoice-number" required>
+          </div>
+          <div class="row">
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Emissão *</label>
+                <input type="date" class="form-control" id="invoice-issue-date" required>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="form-group">
+                <label>Vencimento *</label>
+                <input type="date" class="form-control" id="invoice-due-date" required>
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Valor *</label>
+            <input type="number" class="form-control" id="invoice-amount" step="0.01" required>
+          </div>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Registrar Pagamento -->
+<div class="modal fade" id="paymentModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Registrar Pagamento</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="payment-form" onsubmit="return FinanceUI.savePayment(event);">
+          <input type="hidden" id="payment-invoice-id">
+          <div class="form-group">
+            <label>Data *</label>
+            <input type="date" class="form-control" id="payment-date" required>
+          </div>
+          <div class="form-group">
+            <label>Valor *</label>
+            <input type="number" class="form-control" id="payment-amount" step="0.01" required>
+          </div>
+          <div class="form-group">
+            <label>Método</label>
+            <select class="form-control" id="payment-method">
+              <option value="pix">PIX</option>
+              <option value="bank_transfer">Transferência</option>
+              <option value="credit_card">Cartão de Crédito</option>
+              <option value="boleto">Boleto</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">Salvar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+const FinanceUI = {
+  openInvoiceModal(agreementId) {
+    document.getElementById('invoice-agreement-id').value = agreementId;
+    document.getElementById('invoice-number').value = '';
+    document.getElementById('invoice-amount').value = '';
+    $('#invoiceModal').modal('show');
+  },
+  
+  createInvoice(e) {
+    e.preventDefault();
+    const data = {
+      agreement_id: document.getElementById('invoice-agreement-id').value,
+      number: document.getElementById('invoice-number').value,
+      issue_date: document.getElementById('invoice-issue-date').value,
+      due_date: document.getElementById('invoice-due-date').value,
+      amount: document.getElementById('invoice-amount').value
+    };
+    
+    fetch('/app/financeiro/faturas/create/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+      body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(() => {
+      $('#invoiceModal').modal('hide');
+      window.location.reload();
+    });
+    return false;
+  },
+  
+  registerPayment(invoiceId) {
+    document.getElementById('payment-invoice-id').value = invoiceId;
+    document.getElementById('payment-date').value = new Date().toISOString().split('T')[0];
+    $('#paymentModal').modal('show');
+  },
+  
+  savePayment(e) {
+    e.preventDefault();
+    const invoiceId = document.getElementById('payment-invoice-id').value;
+    const data = {
+      amount: document.getElementById('payment-amount').value,
+      paid_at: document.getElementById('payment-date').value,
+      method: document.getElementById('payment-method').value
+    };
+    
+    fetch(`/app/financeiro/faturas/${invoiceId}/pagamento/`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')},
+      body: JSON.stringify(data)
+    })
+    .then(() => {
+      $('#paymentModal').modal('hide');
+      window.location.reload();
+    });
+    return false;
+  }
+};
+
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie) {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+</script>
+{% endblock %}

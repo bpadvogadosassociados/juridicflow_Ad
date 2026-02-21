@@ -1,0 +1,81 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Kanban | JuridicFlow{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'adminlte/plugins/ekko-lightbox/ekko-lightbox.css' %}">
+{% endblock %}
+{% block page_title %}Kanban{% endblock %}
+{% block breadcrumb %}Kanban{% endblock %}
+{% block content %}
+<div class="row mb-2">
+  <div class="col-12 d-flex align-items-center" style="gap:.5rem;">
+    <button class="btn btn-primary" id="kanban-add-column"><i class="fas fa-plus"></i> Adicionar coluna</button>
+    <a href="{% url 'portal:tarefas' %}" class="btn btn-secondary"><i class="fas fa-list"></i> Ver Lista</a>
+  </div>
+</div>
+
+<!-- PortalKanban looks for #kanban-root -->
+<div class="row" id="kanban-root">
+  <div class="col-12 text-center text-muted py-5">
+    <i class="fas fa-spinner fa-spin fa-2x"></i>
+    <p class="mt-2">Carregando board...</p>
+  </div>
+</div>
+
+<!-- Modal editar card — IDs alinhados com PortalKanban -->
+<div class="modal fade" id="cardEditModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Editar tarefa (Markdown)</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="card-edit-form">
+          <input type="hidden" id="card-id">
+          <input type="hidden" id="card-column-id">
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <label>Título</label>
+              <input class="form-control" id="card-title" required>
+            </div>
+            <div class="form-group col-md-3">
+              <label>Número</label>
+              <input type="number" class="form-control" id="card-number" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Texto (Markdown)</label>
+            <textarea class="form-control" id="card-body-md" rows="8"></textarea>
+          </div>
+          <button class="btn btn-primary" type="submit">Salvar</button>
+        </form>
+        <hr/>
+        <h6>Preview</h6>
+        <div id="card-preview" class="portal-md-preview"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal visualizar card — IDs alinhados com PortalKanban.openViewCard -->
+<div class="modal fade" id="cardViewModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="cardViewTitle"></h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <div id="cardViewBody" class="portal-md-preview"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/jquery-ui/jquery-ui.min.js' %}"></script>
+<script src="{% static 'portal/js/marked.min.js' %}"></script>
+{# PortalKanban.init() is called automatically by portal.js boot() #}
+{# It finds #kanban-root and initializes everything #}
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Atividades/Tarefas | JuridicFlow{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'adminlte/plugins/ekko-lightbox/ekko-lightbox.css' %}">
+{% endblock %}
+{% block page_title %}Atividades/Tarefas{% endblock %}
+{% block breadcrumb %}Kanban{% endblock %}
+{% block content %}
+<div class="row mb-2">
+  <div class="col-12">
+    <button class="btn btn-primary" onclick="KanbanUI.addColumn(); return false;"><i class="fas fa-plus"></i> Adicionar coluna</button>
+  </div>
+</div>
+<div class="row" id="kanban-columns">
+  <!-- preenchido por JS -->
+</div>
+
+<!-- Modal editar card -->
+<div class="modal fade" id="cardEditModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Editar tarefa (Markdown)</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <form id="card-edit-form" onsubmit="return KanbanUI.saveCard(event);">
+          <input type="hidden" id="card-id">
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <label>Título</label>
+              <input class="form-control" id="card-title" required>
+            </div>
+            <div class="form-group col-md-3">
+              <label>Número</label>
+              <input type="number" class="form-control" id="card-number" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Texto (Markdown)</label>
+            <textarea class="form-control" id="card-body-md" rows="8"></textarea>
+          </div>
+          <button class="btn btn-primary" type="submit">Salvar</button>
+        </form>
+        <hr/>
+        <h6>Preview</h6>
+        <div id="card-preview" class="portal-md-preview"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal visualizar card -->
+<div class="modal fade" id="cardViewModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="card-view-title"></h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <div id="card-view-body" class="portal-md-preview"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="{% static 'adminlte/plugins/jquery-ui/jquery-ui.min.js' %}"></script>
+<script src="{% static 'portal/js/marked.min.js' %}"></script>
+<script>
+  KanbanUI.init();
+</script>
+{% endblock %}

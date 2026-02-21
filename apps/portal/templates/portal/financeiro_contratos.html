@@ -1,0 +1,152 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Contratos de Honorários | JuridicFlow{% endblock %}
+{% block page_title %}Contratos de Honorários{% endblock %}
+{% block breadcrumb %}Financeiro / Contratos{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:financeiro_contrato_create' %}" class="btn btn-primary">
+      <i class="fas fa-plus"></i> Novo Contrato
+    </a>
+    <a href="{% url 'portal:financeiro_dashboard' %}" class="btn btn-secondary">
+      <i class="fas fa-chart-line"></i> Dashboard
+    </a>
+  </div>
+</div>
+
+<!-- Filtros -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Filtros</h3>
+    <div class="card-tools">
+      <button type="button" class="btn btn-tool" data-card-widget="collapse">
+        <i class="fas fa-minus"></i>
+      </button>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="form-inline">
+      <div class="form-group mr-2">
+        <input type="text" name="search" class="form-control" placeholder="Buscar" value="{{ search }}">
+      </div>
+      
+      <div class="form-group mr-2">
+        <select name="status" class="form-control">
+          <option value="">Todos os status</option>
+          {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      
+      <div class="form-group mr-2">
+        <select name="billing_type" class="form-control">
+          <option value="">Todos os tipos</option>
+          {% for value, label in billing_type_choices %}
+            <option value="{{ value }}" {% if billing_type == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      
+      <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Filtrar</button>
+      <a href="{% url 'portal:financeiro_contratos' %}" class="btn btn-secondary ml-2">Limpar</a>
+    </form>
+  </div>
+</div>
+
+<!-- Lista -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Contratos ({{ agreements.paginator.count }} total)</h3>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Título</th>
+          <th>Cliente</th>
+          <th>Valor</th>
+          <th>Recebido</th>
+          <th>Saldo</th>
+          <th>Tipo</th>
+          <th>Status</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for agr in agreements %}
+        <tr>
+          <td>
+            <a href="{% url 'portal:financeiro_contrato_detail' agr.id %}">
+              <strong>{{ agr.title }}</strong>
+            </a>
+            {% if agr.process %}
+              <br><small class="text-muted">
+                <i class="fas fa-balance-scale"></i> {{ agr.process.number }}
+              </small>
+            {% endif %}
+          </td>
+          <td>{{ agr.customer.name }}</td>
+          <td>R$ {{ agr.amount|floatformat:2 }}</td>
+          <td>R$ {{ agr.total_received_amount|floatformat:2 }}</td>
+          <td>
+            {% if agr.balance_amount > 0 %}
+              <span class="text-warning">R$ {{ agr.balance_amount|floatformat:2 }}</span>
+            {% else %}
+              <span class="text-success">R$ 0,00</span>
+            {% endif %}
+          </td>
+          <td>{{ agr.get_billing_type_display }}</td>
+          <td>
+            {% if agr.status == 'active' %}
+              <span class="badge badge-success">Ativo</span>
+            {% elif agr.status == 'draft' %}
+              <span class="badge badge-secondary">Rascunho</span>
+            {% elif agr.status == 'completed' %}
+              <span class="badge badge-primary">Concluído</span>
+            {% elif agr.status == 'suspended' %}
+              <span class="badge badge-warning">Suspenso</span>
+            {% elif agr.status == 'cancelled' %}
+              <span class="badge badge-danger">Cancelado</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{% url 'portal:financeiro_contrato_detail' agr.id %}" class="btn btn-sm btn-info" title="Ver">
+              <i class="fas fa-eye"></i>
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="8" class="text-center text-muted p-4">Nenhum contrato encontrado.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  
+  {% if agreements.has_other_pages %}
+  <div class="card-footer clearfix">
+    <ul class="pagination pagination-sm m-0 float-right">
+      {% if agreements.has_previous %}
+        <li class="page-item"><a class="page-link" href="?page={{ agreements.previous_page_number }}{% if search %}&search={{ search }}{% endif %}">«</a></li>
+      {% endif %}
+      
+      {% for num in agreements.paginator.page_range %}
+        {% if agreements.number == num %}
+          <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+        {% elif num > agreements.number|add:'-3' and num < agreements.number|add:'3' %}
+          <li class="page-item"><a class="page-link" href="?page={{ num }}{% if search %}&search={{ search }}{% endif %}">{{ num }}</a></li>
+        {% endif %}
+      {% endfor %}
+      
+      {% if agreements.has_next %}
+        <li class="page-item"><a class="page-link" href="?page={{ agreements.next_page_number }}{% if search %}&search={{ search }}{% endif %}">»</a></li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

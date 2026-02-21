@@ -1,0 +1,77 @@
+{% extends "portal/base.html" %}
+{% block title %}{{ document.title }} | JuridicFlow{% endblock %}
+{% block page_title %}{{ document.title }}{% endblock %}
+{% block breadcrumb %}Documentos / {{ document.title }}{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:documentos' %}" class="btn btn-secondary"><i class="fas fa-arrow-left"></i> Voltar</a>
+    <a href="{% url 'portal:documento_download' document.id %}" class="btn btn-success"><i class="fas fa-download"></i> Download</a>
+    <button class="btn btn-primary" onclick="$('#versionModal').modal('show');"><i class="fas fa-upload"></i> Nova Versão</button>
+    <button class="btn btn-info" onclick="$('#shareModal').modal('show');"><i class="fas fa-share"></i> Compartilhar</button>
+    <button class="btn btn-danger" onclick="if(confirm('Deletar?')) {fetch('/app/documentos/{{ document.id }}/delete/', {method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}}).then(() => window.location.href='{% url "portal:documentos" %}');}"><i class="fas fa-trash"></i></button>
+  </div>
+</div>
+<div class="row">
+  <div class="col-md-8">
+    <div class="card"><div class="card-header"><h3 class="card-title">Informações</h3></div><div class="card-body">
+      <dl class="row">
+        <dt class="col-sm-3">Título:</dt><dd class="col-sm-9"><strong>{{ document.title }}</strong></dd>
+        <dt class="col-sm-3">Categoria:</dt><dd class="col-sm-9">{{ document.get_category_display }}</dd>
+        <dt class="col-sm-3">Status:</dt><dd class="col-sm-9"><span class="badge badge-info">{{ document.get_status_display }}</span></dd>
+        <dt class="col-sm-3">Arquivo:</dt><dd class="col-sm-9">{{ document.file.name|basename }} ({{ document.file_size_mb }} MB)</dd>
+        {% if document.description %}<dt class="col-sm-3">Descrição:</dt><dd class="col-sm-9">{{ document.description }}</dd>{% endif %}
+        {% if document.tags %}<dt class="col-sm-3">Tags:</dt><dd class="col-sm-9">{% for tag in document.tag_list %}<span class="badge badge-info">{{ tag }}</span> {% endfor %}</dd>{% endif %}
+        {% if document.process %}<dt class="col-sm-3">Processo:</dt><dd class="col-sm-9"><a href="{% url 'portal:processo_detail' document.process.id %}">{{ document.process.number }}</a></dd>{% endif %}
+        {% if document.customer %}<dt class="col-sm-3">Cliente:</dt><dd class="col-sm-9"><a href="{% url 'portal:contato_detail' document.customer.id %}">{{ document.customer.name }}</a></dd>{% endif %}
+        <dt class="col-sm-3">Upload:</dt><dd class="col-sm-9">{{ document.created_at|date:"d/m/Y H:i" }} {% if document.uploaded_by %}por {% if document.uploaded_by.get_full_name %}{{ document.uploaded_by.get_full_name }}{% else %}{{ document.uploaded_by.email }}{% endif %}{% endif %}</dd>
+      </dl>
+    </div></div>
+    
+    <div class="card"><div class="card-header"><h3 class="card-title">Versões ({{ versions|length }})</h3></div><div class="card-body p-0">
+      <table class="table"><tbody>
+      {% for v in versions %}<tr><td>v{{ v.version_number }}</td><td>{{ v.file.name|basename }}</td><td>{{ v.file_size_mb }} MB</td><td>{{ v.created_at|date:"d/m/Y H:i" }}</td><td><a href="{% url 'portal:documento_version_download' v.id %}" class="btn btn-sm btn-success"><i class="fas fa-download"></i></a></td></tr>
+      {% empty %}<tr><td colspan="5" class="text-center text-muted p-3">Sem versões.</td></tr>{% endfor %}
+      </tbody></table>
+    </div></div>
+    
+    <div class="card"><div class="card-header"><h3 class="card-title">Comentários</h3><div class="card-tools"><button class="btn btn-sm btn-primary" onclick="$('#commentModal').modal('show');"><i class="fas fa-plus"></i></button></div></div><div class="card-body">
+      {% for c in comments %}<div class="mb-2"><strong>{% if c.author %}{% if c.author.get_full_name %}{{ c.author.get_full_name }}{% else %}{{ c.author.email }}{% endif %}{% else %}—{% endif %}</strong> <small class="text-muted">{{ c.created_at|date:"d/m H:i" }}</small><p>{{ c.comment }}</p></div>{% empty %}<p class="text-muted">Sem comentários.</p>{% endfor %}
+    </div></div>
+  </div>
+  
+  <div class="col-md-4">
+    <div class="card card-primary"><div class="card-header"><h3 class="card-title">Resumo</h3></div><div class="card-body">
+      <dl><dt>Categoria</dt><dd>{{ document.get_category_display }}</dd><dt>Status</dt><dd>{{ document.get_status_display }}</dd><dt>Tamanho</dt><dd>{{ document.file_size_mb }} MB</dd><dt>Extensão</dt><dd>.{{ document.file_extension }}</dd>{% if document.is_confidential %}<dt>Confidencial</dt><dd><span class="badge badge-danger">Sim</span></dd>{% endif %}{% if document.is_template %}<dt>Template</dt><dd><span class="badge badge-info">Sim</span></dd>{% endif %}</dl>
+    </div></div>
+    
+    <div class="card"><div class="card-header"><h3 class="card-title">Compartilhado com</h3></div><div class="card-body p-0"><ul class="list-group list-group-flush">
+      {% for s in shares %}<li class="list-group-item">{% if s.shared_with.get_full_name %}{{ s.shared_with.get_full_name }}{% else %}{{ s.shared_with.email }}{% endif %}<br><small>{% if s.can_edit %}Pode editar{% else %}Leitura{% endif %}</small></li>
+      {% empty %}<li class="list-group-item text-muted">Não compartilhado.</li>{% endfor %}
+    </ul></div></div>
+  </div>
+</div>
+
+<div class="modal fade" id="versionModal"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>Nova Versão</h5><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button></div><div class="modal-body"><form id="version-form" onsubmit="return uploadVersion(event);"><input type="file" class="form-control-file mb-2" id="version-file" required><textarea class="form-control" id="version-changes" placeholder="Descrição das alterações" rows="3"></textarea><button type="submit" class="btn btn-primary mt-2">Upload</button></form></div></div></div></div>
+
+<div class="modal fade" id="commentModal"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5>Novo Comentário</h5><button type="button" class="close" data-dismiss="modal"><span>&times;</span></button></div><div class="modal-body"><form id="comment-form" onsubmit="return saveComment(event);"><textarea class="form-control" id="comment-text" rows="3" required></textarea><button type="submit" class="btn btn-primary mt-2">Comentar</button></form></div></div></div></div>
+
+{% endblock %}
+{% block extra_js %}
+<script>
+function uploadVersion(e) {
+  e.preventDefault();
+  const form = new FormData();
+  form.append('file', document.getElementById('version-file').files[0]);
+  form.append('changes_description', document.getElementById('version-changes').value);
+  fetch('/app/documentos/{{ document.id }}/version/', {method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}, body: form}).then(() => {$('#versionModal').modal('hide'); window.location.reload();});
+  return false;
+}
+function saveComment(e) {
+  e.preventDefault();
+  fetch('/app/documentos/{{ document.id }}/comment/', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken')}, body: JSON.stringify({comment: document.getElementById('comment-text').value})}).then(() => {$('#commentModal').modal('hide'); window.location.reload();});
+  return false;
+}
+function getCookie(name) {let cookieValue = null; if (document.cookie) {const cookies = document.cookie.split(';'); for (let i = 0; i < cookies.length; i++) {const cookie = cookies[i].trim(); if (cookie.substring(0, name.length + 1) === (name + '=')) {cookieValue = decodeURIComponent(cookie.substring(name.length + 1)); break;}}} return cookieValue;}
+</script>
+{% endblock %}

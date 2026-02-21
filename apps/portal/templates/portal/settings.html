@@ -1,0 +1,46 @@
+{% extends "portal/base.html" %}
+{% block page_title %}Configurações{% endblock %}
+{% block breadcrumb %}Configurações{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-header p-2">
+    <ul class="nav nav-pills">
+      <li class="nav-item"><a class="nav-link {% if tab == 'appearance' %}active{% endif %}" href="?tab=appearance">Aparência</a></li>
+      <li class="nav-item"><a class="nav-link {% if tab == 'erp' %}active{% endif %}" href="?tab=erp">ERP</a></li>
+    </ul>
+  </div>
+  <div class="card-body">
+    {% if tab == 'appearance' %}
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="theme">
+        <div class="form-group">
+          <label>Tema do escritório</label>
+          <select class="form-control" name="theme">
+            <option value="default" {% if theme == 'default' %}selected{% endif %}>Padrão (Dark)</option>
+            <option value="dark" {% if theme == 'dark' %}selected{% endif %}>Dark</option>
+            <option value="light" {% if theme == 'light' %}selected{% endif %}>Claro</option>
+          </select>
+          <small class="text-muted">A escolha vale apenas para o escritório atual.</small>
+        </div>
+        <button class="btn btn-primary">Salvar</button>
+      </form>
+    {% elif tab == 'erp' %}
+      <h5>Eventos arrastáveis (Agenda)</h5>
+      <p class="text-muted">Cadastre modelos de eventos exibidos à esquerda na agenda.</p>
+      <form class="form-inline mb-3" onsubmit="return ERPTemplates.create(event);">
+        <input class="form-control mr-2" id="tpl-title" placeholder="Título" required>
+        <input class="form-control mr-2" id="tpl-color" placeholder="Cor (ex: #3c8dbc)" value="#3c8dbc" required>
+        <button class="btn btn-primary" type="submit">Adicionar</button>
+      </form>
+      <div id="tpl-list"></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+  const currentTab = "{{ tab }}";
+  if (currentTab === "erp") { ERPTemplates.init(); }
+</script>
+{% endblock %}

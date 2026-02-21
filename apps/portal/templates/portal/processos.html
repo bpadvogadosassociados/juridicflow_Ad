@@ -1,0 +1,159 @@
+{% extends "portal/base.html" %}
+{% load static %}
+{% block title %}Processos | JuridicFlow{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'adminlte/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}">
+{% endblock %}
+{% block page_title %}Processos{% endblock %}
+{% block breadcrumb %}Processos{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:processo_create' %}" class="btn btn-primary">
+      <i class="fas fa-plus"></i> Novo Processo
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Filtros</h3>
+    <div class="card-tools">
+      <button type="button" class="btn btn-tool" data-card-widget="collapse">
+        <i class="fas fa-minus"></i>
+      </button>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="get" class="form-inline">
+      <div class="form-group mr-2">
+        <input type="text" name="search" class="form-control" placeholder="Buscar (número, assunto)" value="{{ search }}">
+      </div>
+      <div class="form-group mr-2">
+        <select name="phase" class="form-control">
+          <option value="">Todas as fases</option>
+          {% for value, label in phase_choices %}
+            <option value="{{ value }}" {% if phase == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group mr-2">
+        <select name="status" class="form-control">
+          <option value="">Todos os status</option>
+          {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Filtrar</button>
+      <a href="{% url 'portal:processos' %}" class="btn btn-secondary ml-2">Limpar</a>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Lista de Processos ({{ processes.paginator.count }} total)</h3>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover">
+      <thead>
+        <tr>
+          <th>Número</th>
+          <th>Assunto</th>
+          <th>Tribunal</th>
+          <th>Fase</th>
+          <th>Status</th>
+          <th>Criado</th>
+          <th width="150">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in processes %}
+        <tr>
+          <td><a href="{% url 'portal:processo_detail' p.id %}"><strong>{{ p.number }}</strong></a></td>
+          <td>{{ p.subject|default:"—"|truncatewords:8 }}</td>
+          <td>{{ p.court|default:"—" }}</td>
+          <td>
+            {% if p.phase == 'initial' %}<span class="badge badge-info">Inicial</span>
+            {% elif p.phase == 'instruction' %}<span class="badge badge-primary">Instrução</span>
+            {% elif p.phase == 'sentence' %}<span class="badge badge-warning">Sentença</span>
+            {% elif p.phase == 'appeal' %}<span class="badge badge-secondary">Recurso</span>
+            {% elif p.phase == 'execution' %}<span class="badge badge-success">Execução</span>
+            {% elif p.phase == 'archived' %}<span class="badge badge-dark">Arquivado</span>
+            {% else %}<span class="badge badge-light">{{ p.phase }}</span>{% endif %}
+          </td>
+          <td>
+            {% if p.status == 'active' %}<span class="badge badge-success">Ativo</span>
+            {% elif p.status == 'suspended' %}<span class="badge badge-warning">Suspenso</span>
+            {% elif p.status == 'finished' %}<span class="badge badge-secondary">Finalizado</span>
+            {% else %}<span class="badge badge-light">{{ p.status }}</span>{% endif %}
+          </td>
+          <td>{{ p.created_at|date:"d/m/Y" }}</td>
+          <td>
+            <a href="{% url 'portal:processo_detail' p.id %}" class="btn btn-sm btn-info" title="Ver"><i class="fas fa-eye"></i></a>
+            <button class="btn btn-sm btn-danger" onclick="deleteProcess({{ p.id }}, '{{ p.number }}'); return false;" title="Deletar"><i class="fas fa-trash"></i></button>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="text-center text-muted p-4">Nenhum processo encontrado.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if processes.has_other_pages %}
+  <div class="card-footer clearfix">
+    <ul class="pagination pagination-sm m-0 float-right">
+      {% if processes.has_previous %}
+        <li class="page-item"><a class="page-link" href="?page={{ processes.previous_page_number }}{% if search %}&search={{ search }}{% endif %}{% if phase %}&phase={{ phase }}{% endif %}{% if status %}&status={{ status }}{% endif %}">«</a></li>
+      {% endif %}
+      
+      {% for num in processes.paginator.page_range %}
+        {% if processes.number == num %}
+          <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+        {% elif num > processes.number|add:'-3' and num < processes.number|add:'3' %}
+          <li class="page-item"><a class="page-link" href="?page={{ num }}{% if search %}&search={{ search }}{% endif %}{% if phase %}&phase={{ phase }}{% endif %}{% if status %}&status={{ status }}{% endif %}">{{ num }}</a></li>
+        {% endif %}
+      {% endfor %}
+      
+      {% if processes.has_next %}
+        <li class="page-item"><a class="page-link" href="?page={{ processes.next_page_number }}{% if search %}&search={{ search }}{% endif %}{% if phase %}&phase={{ phase }}{% endif %}{% if status %}&status={{ status }}{% endif %}">»</a></li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function deleteProcess(id, number) {
+  if (!confirm(`Deletar processo ${number}?`)) return;
+  
+  fetch(`/app/processos/${id}/delete/`, {
+    method: 'POST',
+    headers: {'X-CSRFToken': getCookie('csrftoken')}
+  })
+  .then(r => r.json())
+  .then(() => {
+    window.location.reload();
+  });
+}
+
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+</script>
+{% endblock %}

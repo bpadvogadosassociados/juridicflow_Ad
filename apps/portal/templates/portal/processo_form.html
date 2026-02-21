@@ -1,0 +1,131 @@
+{% extends "portal/base.html" %}
+{% block page_title %}Novo Processo{% endblock %}
+{% block breadcrumb %}Processos / Novo{% endblock %}
+{% block content %}
+<div class="row">
+  <div class="col-md-8">
+    <div class="card card-primary">
+      <div class="card-header"><h3 class="card-title">Cadastrar Novo Processo</h3></div>
+      <form method="post" novalidate>
+        {% csrf_token %}
+        <div class="card-body">
+          
+          <!-- Number Field -->
+          <div class="form-group">
+            {{ form.number.label_tag }}
+            {{ form.number }}
+            {% if form.number.help_text %}
+              <small class="text-muted">{{ form.number.help_text }}</small>
+            {% endif %}
+            {% if form.number.errors %}
+              <div class="text-danger">
+                {% for error in form.number.errors %}
+                  <small>{{ error }}</small><br>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+          
+          <!-- Court Field -->
+          <div class="form-group">
+            {{ form.court.label_tag }}
+            {{ form.court }}
+            {% if form.court.errors %}
+              <div class="text-danger">
+                {% for error in form.court.errors %}
+                  <small>{{ error }}</small><br>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+          
+          <!-- Subject Field -->
+          <div class="form-group">
+            {{ form.subject.label_tag }}
+            {{ form.subject }}
+            {% if form.subject.errors %}
+              <div class="text-danger">
+                {% for error in form.subject.errors %}
+                  <small>{{ error }}</small><br>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+          
+          <div class="row">
+            <div class="col-md-6">
+              <!-- Phase Field -->
+              <div class="form-group">
+                {{ form.phase.label_tag }}
+                {{ form.phase }}
+                {% if form.phase.errors %}
+                  <div class="text-danger">
+                    {% for error in form.phase.errors %}
+                      <small>{{ error }}</small><br>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+            <div class="col-md-6">
+              <!-- Status Field -->
+              <div class="form-group">
+                {{ form.status.label_tag }}
+                {{ form.status }}
+                {% if form.status.errors %}
+                  <div class="text-danger">
+                    {% for error in form.status.errors %}
+                      <small>{{ error }}</small><br>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="card-footer">
+          <button type="submit" class="btn btn-primary">Salvar</button>
+          <a href="{% url 'portal:processos' %}" class="btn btn-secondary">Cancelar</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Validação client-side adicional
+document.addEventListener('DOMContentLoaded', function() {
+  const numberInput = document.querySelector('input[name="number"]');
+  
+  if (numberInput) {
+    numberInput.addEventListener('blur', function() {
+      const value = this.value.trim();
+      const pattern = /^\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}$/;
+      
+      if (value && !pattern.test(value)) {
+        this.classList.add('is-invalid');
+        
+        // Adiciona mensagem de erro visual se não existir
+        let errorDiv = this.parentElement.querySelector('.invalid-feedback');
+        if (!errorDiv) {
+          errorDiv = document.createElement('div');
+          errorDiv.className = 'invalid-feedback d-block';
+          errorDiv.textContent = 'Formato inválido. Use: NNNNNNN-DD.AAAA.J.TR.OOOO';
+          this.parentElement.appendChild(errorDiv);
+        }
+      } else {
+        this.classList.remove('is-invalid');
+        const errorDiv = this.parentElement.querySelector('.invalid-feedback');
+        if (errorDiv) {
+          errorDiv.remove();
+        }
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

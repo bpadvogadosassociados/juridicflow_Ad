@@ -1,0 +1,52 @@
+{% extends "portal/base.html" %}
+{% block title %}Publicações | JuridicFlow{% endblock %}
+{% block page_title %}Publicações{% endblock %}
+{% block breadcrumb %}Publicações{% endblock %}
+{% block content %}
+<div class="row mb-3">
+  <div class="col-md-12">
+    <a href="{% url 'portal:publicacoes_dashboard' %}" class="btn btn-secondary"><i class="fas fa-chart-line"></i> Dashboard</a>
+    <a href="{% url 'portal:publicacao_import' %}" class="btn btn-primary"><i class="fas fa-upload"></i> Importar</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Filtros</h3></div>
+  <div class="card-body">
+    <form method="get" class="form-inline">
+      <input type="text" name="search" class="form-control mr-2" placeholder="Buscar CNJ ou texto" value="{{ search }}">
+      <select name="type" class="form-control mr-2"><option value="">Tipo</option>{% for v, l in type_choices %}<option value="{{ v }}" {% if event_type == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      <select name="status" class="form-control mr-2"><option value="">Status</option>{% for v, l in status_choices %}<option value="{{ v }}" {% if status_filter == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      <select name="urgency" class="form-control mr-2"><option value="">Urgência</option>{% for v, l in urgency_choices %}<option value="{{ v }}" {% if urgency_filter == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      <select name="assigned" class="form-control mr-2"><option value="">Responsável</option><option value="unassigned" {% if assigned_filter == 'unassigned' %}selected{% endif %}>Não atribuído</option>{% for u in users %}<option value="{{ u.id }}" {% if assigned_filter == u.id|stringformat:"s" %}selected{% endif %}>{{ u.get_full_name|default:u.email }}</option>{% endfor %}</select>
+      <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i></button>
+      <a href="{% url 'portal:publicacoes' %}" class="btn btn-secondary ml-2">Limpar</a>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3 class="card-title">Eventos ({{ events.paginator.count }})</h3></div>
+  <div class="card-body p-0">
+    <table class="table table-hover table-sm">
+      <thead><tr><th>Data Pub.</th><th>CNJ</th><th>Tipo</th><th>Prazo</th><th>Responsável</th><th>Status</th><th>Urgência</th><th>Ações</th></tr></thead>
+      <tbody>
+      {% for e in events %}
+      <tr>
+        <td>{{ e.publication.publication_date|date:"d/m/Y" }}</td>
+        <td><a href="{% url 'portal:publicacao_detail' e.publication.id %}">{{ e.publication.process_cnj|default:"—"|truncatechars:20 }}</a></td>
+        <td>{{ e.get_event_type_display }}</td>
+        <td>{% if e.deadline %}{{ e.deadline.due_date|date:"d/m" }} <small>({{ e.days_until_deadline }}d)</small>{% else %}—{% endif %}</td>
+        <td>{% if e.assigned_to %}{% if e.assigned_to.get_full_name %}{{ e.assigned_to.get_full_name }}{% else %}{{ e.assigned_to.email }}{% endif %}{% else %}—{% endif %}</td>
+        <td><span class="badge badge-{% if e.status == 'new' %}warning{% elif e.status == 'resolved' %}success{% else %}info{% endif %}">{{ e.get_status_display }}</span></td>
+        <td><span class="badge badge-{% if e.urgency == 'critical' %}danger{% elif e.urgency == 'urgent' %}warning{% else %}secondary{% endif %}">{{ e.get_urgency_display }}</span></td>
+        <td><a href="{% url 'portal:publicacao_detail' e.publication.id %}" class="btn btn-sm btn-info"><i class="fas fa-eye"></i></a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" class="text-center text-muted p-3">Nenhuma publicação.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
