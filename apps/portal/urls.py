@@ -40,13 +40,13 @@ urlpatterns = [
     # Calendar templates (settings ERP)
     path("app/api/calendar/templates/list/", views.calendar_templates_list, name="calendar_templates_list"),
     path("app/api/calendar/templates/create/", views.calendar_template_create, name="calendar_template_create"),
-    path("app/api/calendar/templates/delete/<int:tpl_id>/", views.calendar_template_delete, name="calendar_template_delete"),
+    path("app/api/calendar/templates/delete/<int:template_id>/", views.calendar_template_delete, name="calendar_template_delete"),
 
     # Kanban JSON
     path("app/api/kanban/board/", views.kanban_board_json, name="kanban_board_json"),
     path("app/api/kanban/columns/create/", views.kanban_column_create, name="kanban_column_create"),
-    path("app/api/kanban/columns/update/<int:col_id>/", views.kanban_column_update, name="kanban_column_update"),
-    path("app/api/kanban/columns/delete/<int:col_id>/", views.kanban_column_delete, name="kanban_column_delete"),
+    path("app/api/kanban/columns/update/<int:column_id>/", views.kanban_column_update, name="kanban_column_update"),
+    path("app/api/kanban/columns/delete/<int:column_id>/", views.kanban_column_delete, name="kanban_column_delete"),
     path("app/api/kanban/cards/create/", views.kanban_card_create, name="kanban_card_create"),
     path("app/api/kanban/cards/update/<int:card_id>/", views.kanban_card_update, name="kanban_card_update"),
     path("app/api/kanban/cards/move/", views.kanban_card_move, name="kanban_card_move"),

@@ -38,9 +38,7 @@
 </div>
 {% endblock %}
 {% block extra_js %}
+<script src="{% static 'portal/js/agenda.js' %}"></script>
 <script src="{% static 'adminlte/plugins/moment/moment.min.js' %}"></script>
 <script src="{% static 'adminlte/plugins/fullcalendar/main.js' %}"></script>
-<script>
-  PortalCalendar.init();
-</script>
 {% endblock %}
