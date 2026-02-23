@@ -10,7 +10,7 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from apps.portal.decorators import require_portal_access, require_portal_json
-from apps.portal.permissions import require_role
+from apps.shared.permissions import require_role
 
 
 # ==================== HELPERS ====================

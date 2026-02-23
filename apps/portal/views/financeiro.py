@@ -30,7 +30,7 @@ from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.forms import FeeAgreementForm
 from apps.portal.views._helpers import parse_json_body, log_activity
 
-from apps.portal.permissions import require_role, require_action
+from apps.shared.permissions import require_role, require_action
 from apps.portal.audit import audited
 
 

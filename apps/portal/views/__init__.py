@@ -140,7 +140,7 @@ from apps.portal.views._api import (
     notifications_json,
 )
 
-from apps.portal.permissions import require_role, require_action
+from apps.shared.permissions import require_role, require_action
 from apps.portal.audit import audited
 # Processos — novos endpoints
 from apps.portal.views.processos import (

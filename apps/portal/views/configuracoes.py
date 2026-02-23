@@ -7,7 +7,7 @@ from django.shortcuts import render, redirect
 from apps.portal.decorators import require_portal_access
 from apps.portal.forms import ThemeForm
 
-from apps.portal.permissions import require_role, require_action
+from apps.shared.permissions import require_role, require_action
 from apps.portal.audit import audited
 
 from apps.portal.models import OfficePreference
