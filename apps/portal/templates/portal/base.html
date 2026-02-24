@@ -208,9 +208,13 @@
               <p>Financeiro</p>
             </a>
           </li>
+          {% if membership_perms.memberships_view_membership %}
           <li class="nav-item">
-            <a href="#" class="nav-link disabled" style="opacity:.6"><i class="nav-icon fas fa-users-cog"></i><p>Equipe <span class="badge badge-warning right">Breve</span></p></a>
+            <a href="{% url 'portal:equipe' %}" class="nav-link {% if active_page == 'equipe' %}active{% endif %}">
+              <i class="nav-icon fas fa-users-cog"></i><p>Equipe</p>
+            </a>
           </li>
+          {% endif %}
 
           <li class="nav-header">Sistema</li>
           <li class="nav-item">

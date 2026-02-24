@@ -10,7 +10,7 @@ from django.shortcuts import render
 from django.utils import timezone
 
 from apps.portal.decorators import require_portal_access, require_portal_json
-from apps.shared.permissions import require_role
+from apps.shared.permissions import require_membership_perm
 
 
 # ==================== HELPERS ====================
@@ -278,7 +278,7 @@ def _build_alerts(org, office, today):
 # ==================== VIEWS ====================
 
 @require_portal_access()
-@require_role("manager")
+@require_membership_perm("processes.view_process")
 def relatorios_dashboard(request):
     start, end = _daterange_from_request(request, default_days=30)
     metrics = _build_metrics(request.organization, request.office, start, end)
@@ -299,7 +299,7 @@ def relatorios_dashboard(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("processes.view_process")
 def relatorios_json(request):
     start, end = _daterange_from_request(request, default_days=30)
     metrics = _build_metrics(request.organization, request.office, start, end)
@@ -307,7 +307,7 @@ def relatorios_json(request):
 
 
 @require_portal_access()
-@require_role("manager")
+@require_membership_perm("processes.view_process")
 def relatorios_export(request):
     """Exporta dados para CSV simples."""
     tipo = request.GET.get("tipo", "processos")

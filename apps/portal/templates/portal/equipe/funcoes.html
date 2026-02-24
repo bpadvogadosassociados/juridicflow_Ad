@@ -1,0 +1,409 @@
+{% extends "portal/base.html" %}
+{% load static %}
+
+{% block title %}Funções da Equipe | JuridicFlow{% endblock %}
+{% block page_title %}Funções da Equipe{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'portal:equipe' %}">Equipe</a></li>
+<li class="breadcrumb-item active">Funções</li>
+{% endblock %}
+
+{% block content %}
+
+{# ── Cabeçalho ────────────────────────────────────────────────────────────── #}
+<div class="row mb-3 align-items-center">
+  <div class="col">
+    <p class="text-muted mb-0">
+      Funções combinam grupos de permissão e são atribuídas a membros do escritório.
+      Apenas você pode criar grupos de permissão; as funções abaixo usam esses grupos como base.
+    </p>
+  </div>
+  <div class="col-auto">
+    <a href="{% url 'portal:equipe' %}" class="btn btn-sm btn-outline-secondary mr-1">
+      <i class="fas fa-arrow-left"></i> Membros
+    </a>
+    {% if membership_perms.memberships_add_localrole %}
+    <button class="btn btn-sm btn-primary" id="btn-new-role">
+      <i class="fas fa-plus"></i> Nova função
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row">
+
+  {# ── Lista de funções (coluna esquerda) ──────────────────────────────── #}
+  <div class="col-lg-7">
+    <div class="card card-outline card-primary">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-layer-group mr-2"></i>Funções cadastradas</h3>
+      </div>
+      <div class="card-body p-0">
+        {% if funcoes %}
+        <table class="table table-hover mb-0">
+          <thead class="thead-light">
+            <tr>
+              <th>Nome</th>
+              <th>Escopo</th>
+              <th>Grupos de permissão</th>
+              {% if membership_perms.memberships_change_localrole or membership_perms.memberships_delete_localrole %}
+              <th class="text-right">Ações</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for fn in funcoes %}
+            <tr>
+              <td>
+                <strong>{{ fn.name }}</strong>
+                {% if fn.description %}
+                <br><small class="text-muted">{{ fn.description|truncatechars:60 }}</small>
+                {% endif %}
+              </td>
+              <td>
+                {% if fn.office %}
+                  <span class="badge badge-info">{{ fn.office.name }}</span>
+                {% else %}
+                  <span class="badge badge-secondary">Organização</span>
+                {% endif %}
+              </td>
+              <td>
+                {% for g in fn.groups.all %}
+                  <span class="badge badge-light border mr-1" style="font-size:10px;" title="{{ g.name }}">
+                    {{ g.name }}
+                  </span>
+                {% empty %}
+                  <span class="text-muted small">Nenhum grupo</span>
+                {% endfor %}
+              </td>
+              {% if membership_perms.memberships_change_localrole or membership_perms.memberships_delete_localrole %}
+              <td class="text-right text-nowrap">
+                {% if membership_perms.memberships_change_localrole %}
+                <button class="btn btn-xs btn-outline-primary btn-edit-role"
+                        data-id="{{ fn.pk }}"
+                        data-name="{{ fn.name }}"
+                        data-description="{{ fn.description }}"
+                        data-groups="[{% for g in fn.groups.all %}{{ g.pk }}{% if not forloop.last %},{% endif %}{% endfor %}]"
+                        title="Editar função">
+                  <i class="fas fa-edit"></i>
+                </button>
+                {% endif %}
+                {% if membership_perms.memberships_delete_localrole %}
+                <button class="btn btn-xs btn-outline-danger btn-delete-role"
+                        data-id="{{ fn.pk }}"
+                        data-name="{{ fn.name }}"
+                        title="Excluir função">
+                  <i class="fas fa-trash"></i>
+                </button>
+                {% endif %}
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+          <i class="fas fa-layer-group fa-3x mb-3 d-block" style="opacity:.3;"></i>
+          <p>Nenhuma função cadastrada ainda.</p>
+          {% if membership_perms.memberships_add_localrole %}
+          <button class="btn btn-primary btn-sm" id="btn-new-role-empty">
+            <i class="fas fa-plus"></i> Criar primeira função
+          </button>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Grupos disponíveis (coluna direita — informativo) ───────────────── #}
+  <div class="col-lg-5">
+    <div class="card card-outline card-secondary">
+      <div class="card-header">
+        <h3 class="card-title"><i class="fas fa-shield-alt mr-2"></i>Grupos de permissão disponíveis</h3>
+        <div class="card-tools">
+          <button type="button" class="btn btn-tool" data-card-widget="collapse">
+            <i class="fas fa-minus"></i>
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead class="thead-light">
+            <tr>
+              <th>Grupo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in assignable_groups %}
+            <tr>
+              <td>
+                <span class="badge badge-light border">{{ g.name }}</span>
+                {% if g.profile.description %}
+                <br><small class="text-muted" style="font-size:10px;">{{ g.profile.description }}</small>
+                {% endif %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td class="text-muted small">
+                Nenhum grupo disponível. Execute <code>python manage.py setup_permission_groups</code>.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer text-muted small">
+        <i class="fas fa-info-circle mr-1"></i>
+        Grupos marcados como <em>internos</em> não aparecem aqui e não podem ser atribuídos por admins de organização.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Modal: criar / editar função ─────────────────────────────────────────── #}
+{% if membership_perms.memberships_add_localrole or membership_perms.memberships_change_localrole %}
+<div class="modal fade" id="modalRole" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-primary">
+        <h5 class="modal-title text-white" id="modal-role-title">
+          <i class="fas fa-layer-group mr-2"></i>Nova função
+        </h5>
+        <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-role-id" value="">
+
+        <div class="form-group">
+          <label>Nome da função <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="role-name" placeholder="Ex: Estagiário Jurídico" required>
+        </div>
+
+        <div class="form-group">
+          <label>Descrição</label>
+          <input type="text" class="form-control" id="role-description" placeholder="Descreva brevemente as atribuições desta função">
+        </div>
+
+        <div class="form-group">
+          <label>Grupos de permissão <span class="text-danger">*</span></label>
+          <small class="text-muted d-block mb-2">
+            Selecione os blocos de permissão que compõem esta função.
+            Os grupos marcados como <strong>internos</strong> não estão disponíveis.
+          </small>
+          <div class="row" id="groups-checkboxes">
+            {% for g in assignable_groups %}
+            <div class="col-md-6 mb-2">
+              <div class="custom-control custom-checkbox">
+                <input type="checkbox" class="custom-control-input group-checkbox"
+                       id="grp-{{ g.pk }}" value="{{ g.pk }}">
+                <label class="custom-control-label" for="grp-{{ g.pk }}">
+                  <strong>{{ g.name }}</strong>
+                  {% if g.profile.description %}
+                  <br><small class="text-muted">{{ g.profile.description }}</small>
+                  {% endif %}
+                </label>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% if not assignable_groups %}
+          <div class="alert alert-warning">
+            <i class="fas fa-exclamation-triangle mr-1"></i>
+            Nenhum grupo disponível. Execute <code>python manage.py setup_permission_groups</code> primeiro.
+          </div>
+          {% endif %}
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-save-role">
+          <i class="fas fa-save mr-1"></i>Salvar função
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Modal: confirmar exclusão ────────────────────────────────────────────── #}
+{% if membership_perms.memberships_delete_localrole %}
+<div class="modal fade" id="modalDeleteRole" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-danger">
+        <h5 class="modal-title text-white">
+          <i class="fas fa-exclamation-triangle mr-2"></i>Excluir função
+        </h5>
+        <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>Tem certeza que deseja excluir a função <strong id="delete-role-name"></strong>?</p>
+        <p class="text-muted small">
+          Membros com esta função perderão o vínculo com ela, mas seus grupos de permissão
+          atuais serão mantidos até a próxima edição.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="btn-confirm-delete-role">
+          <i class="fas fa-trash mr-1"></i>Excluir
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+
+  // ── URLs das APIs ────────────────────────────────────────────────────────
+  const URL_CREATE = '{% url "portal:equipe_funcao_create" %}';
+  const URL_UPDATE = '{% url "portal:equipe_funcao_update" 0 %}'.replace('/0/', '/');
+  const URL_DELETE = '{% url "portal:equipe_funcao_delete" 0 %}'.replace('/0/', '/');
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  function getCheckedGroupIds() {
+    return Array.from(document.querySelectorAll('.group-checkbox:checked'))
+                .map(function (cb) { return parseInt(cb.value); });
+  }
+
+  function setCheckedGroupIds(ids) {
+    document.querySelectorAll('.group-checkbox').forEach(function (cb) {
+      cb.checked = ids.includes(parseInt(cb.value));
+    });
+  }
+
+  function resetModal() {
+    document.getElementById('modal-role-id').value = '';
+    document.getElementById('role-name').value = '';
+    document.getElementById('role-description').value = '';
+    document.querySelectorAll('.group-checkbox').forEach(function (cb) { cb.checked = false; });
+    document.getElementById('modal-role-title').innerHTML =
+      '<i class="fas fa-layer-group mr-2"></i>Nova função';
+  }
+
+  // ── Abrir modal: nova função ─────────────────────────────────────────────
+  ['btn-new-role', 'btn-new-role-empty'].forEach(function (id) {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.addEventListener('click', function () {
+        resetModal();
+        $('#modalRole').modal('show');
+      });
+    }
+  });
+
+  // ── Abrir modal: editar função ───────────────────────────────────────────
+  document.querySelectorAll('.btn-edit-role').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      resetModal();
+      document.getElementById('modal-role-id').value        = this.dataset.id;
+      document.getElementById('role-name').value            = this.dataset.name;
+      document.getElementById('role-description').value     = this.dataset.description || '';
+      document.getElementById('modal-role-title').innerHTML =
+        '<i class="fas fa-edit mr-2"></i>Editar função';
+      try {
+        const ids = JSON.parse(this.dataset.groups);
+        setCheckedGroupIds(ids);
+      } catch (e) {}
+      $('#modalRole').modal('show');
+    });
+  });
+
+  // ── Salvar função (criar ou editar) ─────────────────────────────────────
+  const btnSave = document.getElementById('btn-save-role');
+  if (btnSave) {
+    btnSave.addEventListener('click', function () {
+      const id          = document.getElementById('modal-role-id').value;
+      const name        = document.getElementById('role-name').value.trim();
+      const description = document.getElementById('role-description').value.trim();
+      const groupIds    = getCheckedGroupIds();
+
+      if (!name) {
+        alert('Informe o nome da função.');
+        return;
+      }
+
+      const url    = id ? (URL_UPDATE + id + '/') : URL_CREATE;
+      const method = 'POST';
+      const body   = JSON.stringify({name: name, description: description, group_ids: groupIds});
+
+      btnSave.disabled = true;
+      btnSave.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Salvando…';
+
+      fetch(url, {
+        method: method,
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body: body
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok || data.id) {
+          $('#modalRole').modal('hide');
+          location.reload();
+        } else {
+          alert(data.error || 'Erro ao salvar função.');
+        }
+      })
+      .catch(function () { alert('Erro de comunicação com o servidor.'); })
+      .finally(function () {
+        btnSave.disabled = false;
+        btnSave.innerHTML = '<i class="fas fa-save mr-1"></i>Salvar função';
+      });
+    });
+  }
+
+  // ── Excluir função ───────────────────────────────────────────────────────
+  let deletingRoleId = null;
+
+  document.querySelectorAll('.btn-delete-role').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      deletingRoleId = this.dataset.id;
+      const nameEl = document.getElementById('delete-role-name');
+      if (nameEl) nameEl.textContent = this.dataset.name;
+      $('#modalDeleteRole').modal('show');
+    });
+  });
+
+  const btnConfirmDelete = document.getElementById('btn-confirm-delete-role');
+  if (btnConfirmDelete) {
+    btnConfirmDelete.addEventListener('click', function () {
+      if (!deletingRoleId) return;
+      btnConfirmDelete.disabled = true;
+      btnConfirmDelete.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Excluindo…';
+
+      fetch(URL_DELETE + deletingRoleId + '/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body: JSON.stringify({})
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          $('#modalDeleteRole').modal('hide');
+          location.reload();
+        } else {
+          alert(data.error || 'Erro ao excluir função.');
+        }
+      })
+      .catch(function () { alert('Erro de comunicação com o servidor.'); })
+      .finally(function () {
+        btnConfirmDelete.disabled = false;
+        btnConfirmDelete.innerHTML = '<i class="fas fa-trash mr-1"></i>Excluir';
+      });
+    });
+  }
+
+})();
+</script>
+{% endblock %}

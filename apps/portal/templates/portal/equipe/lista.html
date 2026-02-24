@@ -1,0 +1,306 @@
+{% extends "portal/base.html" %}
+{% load static %}
+
+{% block title %}Equipe | JuridicFlow{% endblock %}
+{% block page_title %}Equipe — {{ office.name }}{% endblock %}
+{% block breadcrumb %}Equipe{% endblock %}
+
+{% block content %}
+
+{# ── Cabeçalho com ações ──────────────────────────────────────────────────── #}
+<div class="row mb-3 align-items-center">
+  <div class="col">
+    <p class="text-muted mb-0">
+      <i class="fas fa-building mr-1"></i> {{ office.name }}
+      <span class="badge badge-secondary ml-1">{{ members|length }} membro{{ members|length|pluralize }}</span>
+    </p>
+  </div>
+  <div class="col-auto">
+    {% if membership_perms.memberships_view_localrole %}
+    <a href="{% url 'portal:equipe_funcoes' %}" class="btn btn-sm btn-outline-secondary mr-1">
+      <i class="fas fa-layer-group"></i> Funções
+    </a>
+    {% endif %}
+    {% if membership_perms.memberships_add_membership %}
+    <a href="{% url 'portal:equipe_membro_add' %}" class="btn btn-sm btn-primary">
+      <i class="fas fa-user-plus"></i> Adicionar membro
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Tabela de membros ────────────────────────────────────────────────────── #}
+<div class="card card-outline card-primary">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fas fa-users mr-2"></i>Membros do escritório</h3>
+    <div class="card-tools">
+      <input type="text" id="member-search" class="form-control form-control-sm" placeholder="Buscar membro..." style="width:200px;">
+    </div>
+  </div>
+  <div class="card-body p-0">
+    {% if members %}
+    <table class="table table-hover mb-0" id="members-table">
+      <thead class="thead-light">
+        <tr>
+          <th>Usuário</th>
+          <th>E-mail</th>
+          <th>Função</th>
+          <th>Grupos ativos</th>
+          <th class="text-center">Status</th>
+          {% if membership_perms.memberships_change_membership or membership_perms.memberships_delete_membership %}
+          <th class="text-right">Ações</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in members %}
+        <tr data-membership-id="{{ m.pk }}" class="member-row">
+          <td>
+            <div class="d-flex align-items-center">
+              <div class="img-circle bg-gradient-primary text-white d-flex align-items-center justify-content-center mr-2"
+                   style="width:34px;height:34px;font-size:14px;font-weight:bold;flex-shrink:0;">
+                {{ m.user.get_full_name|default:m.user.email|first|upper }}
+              </div>
+              <div>
+                <strong>{{ m.user.get_full_name|default:"—" }}</strong>
+                {% if m.user == request.user %}
+                <span class="badge badge-info ml-1">Você</span>
+                {% endif %}
+              </div>
+            </div>
+          </td>
+          <td class="text-muted small">{{ m.user.email }}</td>
+          <td>
+            {% if m.local_role %}
+              <span class="badge badge-primary" title="{{ m.local_role.description }}">
+                <i class="fas fa-tag mr-1"></i>{{ m.local_role.name }}
+              </span>
+            {% else %}
+              <span class="text-muted small">Sem função</span>
+            {% endif %}
+          </td>
+          <td>
+            {% for g in m.groups.all %}
+              <span class="badge badge-light border mr-1" style="font-size:10px;">{{ g.name }}</span>
+            {% empty %}
+              <span class="text-muted small">—</span>
+            {% endfor %}
+          </td>
+          <td class="text-center">
+            {% if m.is_active %}
+              <span class="badge badge-success">Ativo</span>
+            {% else %}
+              <span class="badge badge-secondary">Inativo</span>
+            {% endif %}
+          </td>
+          {% if membership_perms.memberships_change_membership or membership_perms.memberships_delete_membership %}
+          <td class="text-right">
+            {% if membership_perms.memberships_change_membership %}
+            <button class="btn btn-xs btn-outline-primary btn-edit-role"
+                    data-id="{{ m.pk }}"
+                    data-role="{{ m.local_role.pk|default:'' }}"
+                    data-role-name="{{ m.local_role.name|default:'Sem função' }}"
+                    title="Trocar função">
+              <i class="fas fa-exchange-alt"></i>
+            </button>
+            {% endif %}
+            {% if membership_perms.memberships_delete_membership and m.user != request.user %}
+            <button class="btn btn-xs btn-outline-danger btn-remove-member"
+                    data-id="{{ m.pk }}"
+                    data-email="{{ m.user.email }}"
+                    title="Remover do escritório">
+              <i class="fas fa-user-times"></i>
+            </button>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+      <i class="fas fa-users fa-3x mb-3 d-block" style="opacity:.3;"></i>
+      <p>Nenhum membro neste escritório.</p>
+      {% if membership_perms.memberships_add_membership %}
+      <a href="{% url 'portal:equipe_membro_add' %}" class="btn btn-primary btn-sm">
+        <i class="fas fa-user-plus"></i> Adicionar primeiro membro
+      </a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Modal: trocar função ─────────────────────────────────────────────────── #}
+{% if membership_perms.memberships_change_membership %}
+<div class="modal fade" id="modalEditRole" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-primary">
+        <h5 class="modal-title text-white"><i class="fas fa-exchange-alt mr-2"></i>Trocar função do membro</h5>
+        <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-3" id="edit-role-user-label">Selecione a nova função para este membro:</p>
+        <div class="form-group">
+          <label>Função</label>
+          <select class="form-control" id="select-role">
+            <option value="">— Sem função —</option>
+            {% for lr in local_roles %}
+            <option value="{{ lr.pk }}">{{ lr.name }}{% if lr.description %} — {{ lr.description|truncatechars:50 }}{% endif %}</option>
+            {% endfor %}
+          </select>
+          <small class="text-muted">
+            As permissões do usuário serão atualizadas automaticamente.
+            <a href="{% url 'portal:equipe_funcoes' %}">Gerenciar funções</a>
+          </small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-role">
+          <i class="fas fa-check mr-1"></i>Confirmar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Modal: confirmar remoção ─────────────────────────────────────────────── #}
+{% if membership_perms.memberships_delete_membership %}
+<div class="modal fade" id="modalRemoveMember" tabindex="-1" role="dialog">
+  <div class="modal-dialog" role="document">
+    <div class="modal-content">
+      <div class="modal-header bg-danger">
+        <h5 class="modal-title text-white"><i class="fas fa-exclamation-triangle mr-2"></i>Remover membro</h5>
+        <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>Tem certeza que deseja remover <strong id="remove-member-email"></strong> deste escritório?</p>
+        <p class="text-muted small">O usuário perderá todas as permissões neste escritório. Seus dados não serão excluídos.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="btn-confirm-remove">
+          <i class="fas fa-user-times mr-1"></i>Remover
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+
+  // ── Busca local ──────────────────────────────────────────────────────────
+  const searchInput = document.getElementById('member-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', function () {
+      const q = this.value.toLowerCase();
+      document.querySelectorAll('.member-row').forEach(function (row) {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+      });
+    });
+  }
+
+  // ── Trocar função ────────────────────────────────────────────────────────
+  let editingMembershipId = null;
+
+  document.querySelectorAll('.btn-edit-role').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      editingMembershipId = this.dataset.id;
+      const select = document.getElementById('select-role');
+      const label  = document.getElementById('edit-role-user-label');
+      const row    = document.querySelector('[data-membership-id="' + editingMembershipId + '"]');
+      const email  = row ? row.querySelector('td:nth-child(2)').textContent.trim() : '';
+
+      if (label) label.textContent = 'Trocar função de: ' + email;
+      if (select) select.value = this.dataset.role || '';
+
+      $('#modalEditRole').modal('show');
+    });
+  });
+
+  const btnConfirmRole = document.getElementById('btn-confirm-role');
+  if (btnConfirmRole) {
+    btnConfirmRole.addEventListener('click', function () {
+      if (!editingMembershipId) return;
+      const localRoleId = document.getElementById('select-role').value;
+
+      btnConfirmRole.disabled = true;
+      btnConfirmRole.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Salvando…';
+
+      fetch('{% url "portal:equipe_membro_update" 0 %}'.replace('/0/', '/' + editingMembershipId + '/'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body: JSON.stringify({local_role_id: localRoleId ? parseInt(localRoleId) : null})
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          $('#modalEditRole').modal('hide');
+          location.reload();
+        } else {
+          alert(data.error || 'Erro ao atualizar função.');
+        }
+      })
+      .catch(function () { alert('Erro de comunicação com o servidor.'); })
+      .finally(function () {
+        btnConfirmRole.disabled = false;
+        btnConfirmRole.innerHTML = '<i class="fas fa-check mr-1"></i>Confirmar';
+      });
+    });
+  }
+
+  // ── Remover membro ───────────────────────────────────────────────────────
+  let removingMembershipId = null;
+
+  document.querySelectorAll('.btn-remove-member').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      removingMembershipId = this.dataset.id;
+      const emailEl = document.getElementById('remove-member-email');
+      if (emailEl) emailEl.textContent = this.dataset.email;
+      $('#modalRemoveMember').modal('show');
+    });
+  });
+
+  const btnConfirmRemove = document.getElementById('btn-confirm-remove');
+  if (btnConfirmRemove) {
+    btnConfirmRemove.addEventListener('click', function () {
+      if (!removingMembershipId) return;
+      btnConfirmRemove.disabled = true;
+      btnConfirmRemove.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Removendo…';
+
+      fetch('{% url "portal:equipe_membro_remove" 0 %}'.replace('/0/', '/' + removingMembershipId + '/'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+        body: JSON.stringify({})
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          $('#modalRemoveMember').modal('hide');
+          location.reload();
+        } else {
+          alert(data.error || 'Erro ao remover membro.');
+        }
+      })
+      .catch(function () { alert('Erro de comunicação com o servidor.'); })
+      .finally(function () {
+        btnConfirmRemove.disabled = false;
+        btnConfirmRemove.innerHTML = '<i class="fas fa-user-times mr-1"></i>Remover';
+      });
+    });
+  }
+
+})();
+</script>
+{% endblock %}

@@ -37,7 +37,7 @@ from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.forms import DocumentUploadForm
 from apps.portal.views._helpers import parse_json_body, log_activity
 
-from apps.shared.permissions import require_role, require_action
+from apps.shared.permissions import require_membership_perm
 from apps.portal.audit import audited
 
 
@@ -138,7 +138,7 @@ def documentos(request):
 # ==================== UPLOAD ====================
 
 @require_portal_access()
-@require_role("assistant")
+@require_membership_perm("documents.add_document")
 @require_http_methods(["GET", "POST"])
 def documento_upload(request):
     if request.method == "POST":
@@ -281,7 +281,7 @@ def documento_version_download(request, version_id):
 # ==================== DELETE ====================
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("documents.delete_document")
 @audited(action="delete", model_name="Document")
 @require_http_methods(["POST"])
 def documento_delete(request, document_id):
@@ -302,7 +302,7 @@ def documento_delete(request, document_id):
 # ==================== VERSIONS ====================
 
 @require_portal_json()
-@require_role("assistant")
+@require_membership_perm("documents.add_document")
 @require_http_methods(["POST"])
 def documento_version_create(request, document_id):
     doc = get_object_or_404(
@@ -345,7 +345,7 @@ def documento_version_create(request, document_id):
 # ==================== SHARES ====================
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("documents.change_document")
 @audited(action="share", model_name="Document")
 @require_http_methods(["POST"])
 def documento_share_create(request, document_id):
@@ -387,7 +387,7 @@ def documento_share_create(request, document_id):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("documents.change_document")
 @require_http_methods(["POST"])
 def documento_share_delete(request, share_id):
     share = get_object_or_404(
@@ -403,7 +403,7 @@ def documento_share_delete(request, share_id):
 # ==================== COMMENTS ====================
 
 @require_portal_json()
-@require_role("intern")
+@require_membership_perm("documents.view_document")
 @require_http_methods(["POST"])
 def documento_comment_create(request, document_id):
     doc = get_object_or_404(
@@ -452,7 +452,7 @@ def pastas(request):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("documents.add_document")
 @require_http_methods(["POST"])
 def pasta_create(request):
     payload = parse_json_body(request)
@@ -484,7 +484,7 @@ def pasta_create(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("documents.delete_document")
 @require_http_methods(["POST"])
 def pasta_delete(request, folder_id):
     folder = get_object_or_404(

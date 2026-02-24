@@ -7,13 +7,13 @@ from django.shortcuts import render, redirect
 from apps.portal.decorators import require_portal_access
 from apps.portal.forms import ThemeForm
 
-from apps.shared.permissions import require_role, require_action
+from apps.shared.permissions import require_membership_perm
 from apps.portal.audit import audited
 
 from apps.portal.models import OfficePreference
 
 @require_portal_access()
-@require_role("manager")
+@require_membership_perm("organizations.change_organization")
 def settings_view(request):
     pref, _ = OfficePreference.objects.get_or_create(office=request.office)
     tab = request.GET.get("tab", "appearance")

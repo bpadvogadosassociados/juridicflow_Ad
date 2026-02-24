@@ -30,14 +30,14 @@ from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.forms import FeeAgreementForm
 from apps.portal.views._helpers import parse_json_body, log_activity
 
-from apps.shared.permissions import require_role, require_action
+from apps.shared.permissions import require_membership_perm
 from apps.portal.audit import audited
 
 
 # ==================== DASHBOARD ====================
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("finance.view_feeagreement")
 def financeiro_dashboard(request):
     office = request.office
     today = timezone.now().date()
@@ -96,7 +96,7 @@ def financeiro_dashboard(request):
 # ==================== CONTRATOS ====================
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("finance.view_feeagreement")
 def financeiro_contratos(request):
     search = request.GET.get("search", "")
     status_filter = request.GET.get("status", "")
@@ -128,7 +128,7 @@ def financeiro_contratos(request):
 
 
 @require_portal_access()
-@require_role("manager")
+@require_membership_perm("finance.add_feeagreement")
 @require_http_methods(["GET", "POST"])
 def financeiro_contrato_create(request):
     if request.method == "POST":
@@ -160,7 +160,7 @@ def financeiro_contrato_create(request):
 
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("finance.view_feeagreement")
 def financeiro_contrato_detail(request, agreement_id):
     agreement = get_object_or_404(
         FeeAgreement.objects.select_related("customer", "process"),
@@ -188,7 +188,7 @@ def financeiro_contrato_detail(request, agreement_id):
 # ==================== FATURAS ====================
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("finance.view_invoice")
 def financeiro_faturas(request):
     office = request.office
     status_filter = request.GET.get("status", "")
@@ -221,7 +221,7 @@ def financeiro_faturas(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("finance.add_invoice")
 @require_http_methods(["POST"])
 def financeiro_fatura_create(request):
     payload = parse_json_body(request)
@@ -278,7 +278,7 @@ def financeiro_fatura_create(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("finance.add_payment")
 @audited(action="payment", model_name="Invoice")
 @require_http_methods(["POST"])
 def financeiro_fatura_registrar_pagamento(request, invoice_id):
@@ -326,7 +326,7 @@ def financeiro_fatura_registrar_pagamento(request, invoice_id):
 # ==================== DESPESAS ====================
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("finance.view_expense")
 def financeiro_despesas(request):
     search = request.GET.get("search", "")
     category = request.GET.get("category", "")
@@ -363,7 +363,7 @@ def financeiro_despesas(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("finance.add_expense")
 @require_http_methods(["POST"])
 def financeiro_despesa_create(request):
     payload = parse_json_body(request)
@@ -406,7 +406,7 @@ def financeiro_despesa_create(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("finance.change_expense")
 @require_http_methods(["POST"])
 def financeiro_despesa_update(request, expense_id):
     expense = get_object_or_404(
@@ -444,7 +444,7 @@ def financeiro_despesa_update(request, expense_id):
 
 
 @require_portal_json()
-@require_role("admin")
+@require_membership_perm("finance.delete_expense")
 @audited(action="delete", model_name="Expense")
 @require_http_methods(["POST"])
 def financeiro_despesa_delete(request, expense_id):
@@ -461,7 +461,7 @@ def financeiro_despesa_delete(request, expense_id):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("finance.view_expense")
 def financeiro_despesa_detail(request, expense_id):
     expense = get_object_or_404(
         Expense,
@@ -490,7 +490,7 @@ from apps.processes.models import Process as _Process
 
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("finance.view_feeagreement")
 def financeiro_propostas(request):
     status_filter = request.GET.get("status", "")
     search = request.GET.get("search", "")
@@ -519,7 +519,7 @@ def financeiro_propostas(request):
 
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("finance.add_feeagreement")
 @require_http_methods(["GET", "POST"])
 def financeiro_proposta_create(request):
     from apps.customers.models import Customer as _Customer
@@ -575,7 +575,7 @@ def financeiro_proposta_create(request):
 
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("finance.view_feeagreement")
 def financeiro_proposta_detail(request, proposal_id):
     proposal = get_object_or_404(
         Proposal,
@@ -591,7 +591,7 @@ def financeiro_proposta_detail(request, proposal_id):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("finance.change_feeagreement")
 @require_http_methods(["POST"])
 def financeiro_proposta_status(request, proposal_id):
     """Muda status da proposta."""
@@ -613,7 +613,7 @@ def financeiro_proposta_status(request, proposal_id):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("finance.change_feeagreement")
 @require_http_methods(["POST"])
 def financeiro_proposta_converter(request, proposal_id):
     """Converte proposta aceita em FeeAgreement."""

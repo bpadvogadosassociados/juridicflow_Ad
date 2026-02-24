@@ -1,6 +1,8 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 import re
+from django.contrib.auth.models import Group
+
 
 def validate_cnpj(value: str):
     digits = re.sub(r"\D", "", value or "")
@@ -26,3 +28,11 @@ class Organization(models.Model):
 
     def __str__(self):
         return self.name
+
+class OrgRole(models.Model):
+    name = models.CharField(max_length=100) #Ex: Estagiario
+    organization = models.ForeignKey("organizations.Organization", on_delete=models.CASCADE)
+    office = models.ForeignKey("offices.Office", on_delete=models.CASCADE, null=True, blank=True)
+
+    # Os grupos do Django que compõem essa função
+    groups = models.ManyToManyField(Group, blank=True)

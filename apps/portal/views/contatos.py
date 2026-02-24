@@ -23,7 +23,7 @@ from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.forms import CustomerForm
 from apps.portal.views._helpers import log_activity, parse_json_body
 
-from apps.shared.permissions import require_role, require_action
+from apps.shared.permissions import require_membership_perm
 from apps.portal.audit import audited
 
 def _collect_tags(qs):
@@ -139,7 +139,7 @@ def contatos(request):
 # ==================== CREATE / EDIT ====================
 
 @require_portal_access()
-@require_role("assistant")
+@require_membership_perm("customers.add_customer")
 @require_http_methods(["GET", "POST"])
 def contato_create(request):
     if request.method == "POST":
@@ -209,7 +209,7 @@ def contato_detail(request, customer_id):
 
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("customers.change_customer")
 @require_http_methods(["GET", "POST"])
 def contato_edit(request, customer_id):
     customer = get_object_or_404(
@@ -244,7 +244,7 @@ def contato_edit(request, customer_id):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("customers.delete_customer")
 @audited(action="delete", model_name="Customer")
 @require_http_methods(["POST"])
 def contato_delete(request, customer_id):
@@ -263,7 +263,7 @@ def contato_delete(request, customer_id):
 # ==================== INTERAÇÕES ====================
 
 @require_portal_json()
-@require_role("intern")
+@require_membership_perm("customers.view_customer")
 @require_http_methods(["POST"])
 def contato_interaction_create(request, customer_id):
     customer = get_object_or_404(
@@ -305,7 +305,7 @@ def contato_interaction_create(request, customer_id):
 # ==================== IMPORT / EXPORT ====================
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("customers.view_customer")
 @audited(action="export", model_name="Customer")
 def contatos_export(request):
     customers = Customer.objects.filter(
@@ -338,7 +338,7 @@ def contatos_export(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("customers.add_customer")
 @audited(action="import", model_name="Customer")
 @require_http_methods(["POST"])
 def contatos_import(request):
@@ -406,7 +406,7 @@ def contatos_pipeline(request):
 
 
 @require_portal_json()
-@require_role("intern")
+@require_membership_perm("customers.change_customer")
 @require_http_methods(["POST"])
 def contato_pipeline_move(request, customer_id):
     """Move contato de etapa no funil."""
@@ -430,7 +430,7 @@ def contato_pipeline_move(request, customer_id):
 
 
 @require_portal_json()
-@require_role("intern")
+@require_membership_perm("customers.change_customer")
 @require_http_methods(["POST"])
 def contato_next_action(request, customer_id):
     """Atualiza próxima ação do contato."""
@@ -451,7 +451,7 @@ def contato_next_action(request, customer_id):
 # ==================== RELACIONAMENTOS ====================
 
 @require_portal_json()
-@require_role("intern")
+@require_membership_perm("customers.change_customer")
 @require_http_methods(["POST"])
 def contato_relationship_add(request, customer_id):
     """Adiciona relacionamento entre contatos."""
@@ -491,7 +491,7 @@ def contato_relationship_add(request, customer_id):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("customers.change_customer")
 @require_http_methods(["POST"])
 def contato_relationship_remove(request, customer_id, rel_id):
     """Remove relacionamento."""
@@ -504,7 +504,7 @@ def contato_relationship_remove(request, customer_id, rel_id):
 # ==================== DOCUMENTOS ====================
 
 @require_portal_json()
-@require_role("intern")
+@require_membership_perm("customers.view_customer")
 @require_http_methods(["POST"])
 def contato_document_upload(request, customer_id):
     """Upload de documento do contato."""

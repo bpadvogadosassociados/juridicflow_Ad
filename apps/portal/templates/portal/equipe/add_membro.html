@@ -1,0 +1,153 @@
+{% extends "portal/base.html" %}
+{% load static %}
+
+{% block title %}Adicionar Membro | JuridicFlow{% endblock %}
+{% block page_title %}Adicionar Membro{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{% url 'portal:equipe' %}">Equipe</a></li>
+<li class="breadcrumb-item active">Adicionar Membro</li>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+
+    <div class="card card-outline card-primary">
+      <div class="card-header">
+        <h3 class="card-title">
+          <i class="fas fa-user-plus mr-2"></i>Adicionar usuário ao escritório
+        </h3>
+      </div>
+
+      <form method="post" action="{% url 'portal:equipe_membro_add' %}" id="add-member-form">
+        {% csrf_token %}
+        <div class="card-body">
+
+          {# ── Escritório atual (somente leitura) ──────────────────────── #}
+          <div class="form-group">
+            <label class="text-muted small text-uppercase">Escritório</label>
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <span class="input-group-text"><i class="fas fa-building"></i></span>
+              </div>
+              <input type="text" class="form-control" value="{{ office.name }}" disabled>
+            </div>
+            <small class="text-muted">O membro será adicionado ao escritório ativo.</small>
+          </div>
+
+          {# ── E-mail ──────────────────────────────────────────────────── #}
+          <div class="form-group">
+            <label for="email">E-mail do usuário <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <div class="input-group-prepend">
+                <span class="input-group-text"><i class="fas fa-envelope"></i></span>
+              </div>
+              <input type="email" class="form-control" id="email" name="email"
+                     placeholder="usuario@exemplo.com" required
+                     autocomplete="off">
+            </div>
+            <small class="text-muted">
+              O usuário precisa ter uma conta criada no sistema pelo superadmin.
+            </small>
+          </div>
+
+          {# ── Função local ────────────────────────────────────────────── #}
+          <div class="form-group">
+            <label for="local_role_id">Função <span class="text-danger">*</span></label>
+            <select class="form-control" id="local_role_id" name="local_role_id" required>
+              <option value="">— Selecione uma função —</option>
+              {% for lr in local_roles %}
+              <option value="{{ lr.pk }}" data-description="{{ lr.description }}">
+                {{ lr.name }}
+                {% if lr.office %}({{ lr.office.name }}){% else %}(geral){% endif %}
+              </option>
+              {% empty %}
+              <option value="" disabled>Nenhuma função cadastrada</option>
+              {% endfor %}
+            </select>
+            <div id="role-description" class="mt-1 small text-muted" style="min-height:18px;"></div>
+            {% if not local_roles %}
+            <div class="alert alert-warning mt-2 mb-0">
+              <i class="fas fa-exclamation-triangle mr-1"></i>
+              Nenhuma função cadastrada.
+              <a href="{% url 'portal:equipe_funcoes' %}">Criar funções</a> antes de adicionar membros.
+            </div>
+            {% endif %}
+          </div>
+
+          {# ── Label de papel (legado) ──────────────────────────────────── #}
+          <div class="form-group">
+            <label for="role_label">Rótulo de cargo (opcional)</label>
+            <select class="form-control" id="role_label" name="role_label">
+              <option value="staff">Equipe (padrão)</option>
+              <option value="lawyer">Advogado</option>
+              <option value="finance">Financeiro</option>
+              <option value="intern">Estagiário</option>
+              <option value="office_admin">Admin do escritório</option>
+              <option value="org_admin">Admin da organização</option>
+            </select>
+            <small class="text-muted">
+              Rótulo informativo apenas. As permissões reais são controladas pela <strong>Função</strong> acima.
+            </small>
+          </div>
+
+        </div>
+
+        <div class="card-footer d-flex justify-content-between align-items-center">
+          <a href="{% url 'portal:equipe' %}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left mr-1"></i>Voltar
+          </a>
+          <button type="submit" class="btn btn-primary" id="btn-submit">
+            <i class="fas fa-user-plus mr-1"></i>Adicionar ao escritório
+          </button>
+        </div>
+      </form>
+    </div>
+
+    {# ── Aviso sobre criação de usuários ──────────────────────────────────── #}
+    <div class="callout callout-info">
+      <h6><i class="fas fa-info-circle mr-1"></i>Sobre criação de usuários</h6>
+      <p class="mb-0 small">
+        Para adicionar um membro, o usuário precisa ter uma conta criada no sistema.
+        Contas são criadas pelo administrador da plataforma via painel administrativo (<code>/admin</code>).
+        O e-mail digitado acima precisa corresponder exatamente ao e-mail cadastrado.
+      </p>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  // Exibe a descrição da função selecionada
+  const select = document.getElementById('local_role_id');
+  const desc   = document.getElementById('role-description');
+
+  function updateDesc() {
+    const opt = select.options[select.selectedIndex];
+    if (opt && opt.dataset.description) {
+      desc.textContent = opt.dataset.description;
+    } else {
+      desc.textContent = '';
+    }
+  }
+
+  if (select) {
+    select.addEventListener('change', updateDesc);
+    updateDesc();
+  }
+
+  // Previne duplo submit
+  const form = document.getElementById('add-member-form');
+  const btn  = document.getElementById('btn-submit');
+  if (form && btn) {
+    form.addEventListener('submit', function () {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Adicionando…';
+    });
+  }
+})();
+</script>
+{% endblock %}

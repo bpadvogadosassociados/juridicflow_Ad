@@ -16,7 +16,7 @@ from apps.portal.models import CalendarEntry, CalendarEventTemplate
 from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.views._helpers import parse_json_body, log_activity
 
-from apps.shared.permissions import require_role, require_action
+from apps.shared.permissions import require_membership_perm
 from apps.portal.audit import audited
 
 # ==================== HTML ====================
@@ -59,7 +59,7 @@ def calendar_events_json(request):
 
 
 @require_portal_json()
-@require_role("assistant")
+@require_membership_perm("portal.add_calendarentry")
 @require_http_methods(["POST"])
 def calendar_event_create(request):
     payload = parse_json_body(request)
@@ -97,7 +97,7 @@ def calendar_event_create(request):
 
 
 @require_portal_json()
-@require_role("assistant")
+@require_membership_perm("portal.change_calendarentry")
 @require_http_methods(["POST"])
 def calendar_event_update(request, event_id):
     entry = get_object_or_404(
@@ -125,7 +125,7 @@ def calendar_event_update(request, event_id):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("portal.delete_calendarentry")
 @require_http_methods(["POST"])
 def calendar_event_delete(request, event_id):
     entry = get_object_or_404(
@@ -162,7 +162,7 @@ def calendar_templates_list(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("portal.add_calendarentry")
 @require_http_methods(["POST"])
 def calendar_template_create(request):
     payload = parse_json_body(request)
@@ -181,7 +181,7 @@ def calendar_template_create(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("portal.delete_calendarentry")
 @require_http_methods(["POST"])
 def calendar_template_delete(request, template_id):
     template = get_object_or_404(

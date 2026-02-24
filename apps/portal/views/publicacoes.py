@@ -17,7 +17,7 @@ from apps.publications.services import PublicationProcessor
 from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.views._helpers import parse_json_body, log_activity
 
-from apps.shared.permissions import require_role, require_action
+from apps.shared.permissions import require_membership_perm
 from apps.portal.audit import audited
 
 # ==================== DASHBOARD ====================
@@ -112,7 +112,7 @@ def publicacao_detail(request, pub_id):
 # ==================== IMPORT ====================
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("publications.add_publication")
 @require_http_methods(["GET", "POST"])
 def publicacao_import(request):
     if request.method == "POST":
@@ -148,7 +148,7 @@ def publicacao_import(request):
 # ==================== EVENTS ====================
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("publications.change_publication")
 @require_http_methods(["POST"])
 def evento_assign(request, event_id):
     event = get_object_or_404(
@@ -176,7 +176,7 @@ def evento_assign(request, event_id):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("publications.change_publication")
 @require_http_methods(["POST"])
 def evento_status(request, event_id):
     event = get_object_or_404(
@@ -199,7 +199,7 @@ def evento_status(request, event_id):
 # ==================== RULES / FILTERS ====================
 
 @require_portal_access()
-@require_role("manager")
+@require_membership_perm("publications.change_publication")
 def publicacao_rules(request):
     rules = PublicationRule.objects.filter(
         organization=request.organization,
@@ -213,7 +213,7 @@ def publicacao_rules(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("publications.add_publication")
 @require_http_methods(["POST"])
 def publicacao_rule_create(request):
     payload = parse_json_body(request)
@@ -243,7 +243,7 @@ def publicacao_rule_create(request):
 
 
 @require_portal_access()
-@require_role("manager")
+@require_membership_perm("publications.change_publication")
 def publicacao_filters(request):
     filters = PublicationFilter.objects.filter(
         organization=request.organization,
@@ -257,7 +257,7 @@ def publicacao_filters(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("publications.add_publication")
 @require_http_methods(["POST"])
 def publicacao_filter_create(request):
     payload = parse_json_body(request)

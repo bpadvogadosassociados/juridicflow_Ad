@@ -140,7 +140,18 @@ from apps.portal.views._api import (
     notifications_json,
 )
 
-from apps.shared.permissions import require_role, require_action
+# Equipe / Team management
+from apps.portal.views.equipe import (
+    equipe,
+    equipe_membro_add,
+    equipe_membro_update,
+    equipe_membro_remove,
+    equipe_funcoes,
+    equipe_funcao_create,
+    equipe_funcao_update,
+    equipe_funcao_delete,
+)
+
 from apps.portal.audit import audited
 # Processos — novos endpoints
 from apps.portal.views.processos import (

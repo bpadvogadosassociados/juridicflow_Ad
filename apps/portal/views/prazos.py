@@ -19,7 +19,7 @@ from apps.processes.models import Process
 from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.views._helpers import parse_json_body, log_activity
 
-from apps.shared.permissions import require_role, require_action
+from apps.shared.permissions import require_membership_perm
 from apps.portal.audit import audited
 
 
@@ -120,7 +120,7 @@ def prazos_calendar_json(request):
 # ==================== CRUD JSON ====================
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("deadlines.add_deadline")
 @require_http_methods(["POST"])
 def prazo_create(request):
     payload = parse_json_body(request)
@@ -186,7 +186,7 @@ def prazo_create(request):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("deadlines.change_deadline")
 @require_http_methods(["POST"])
 def prazo_update(request, prazo_id):
     deadline = get_object_or_404(
@@ -252,7 +252,7 @@ def prazo_update(request, prazo_id):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("deadlines.delete_deadline")
 @audited(action="delete", model_name="Deadline")
 @require_http_methods(["POST"])
 def prazo_delete(request, prazo_id):

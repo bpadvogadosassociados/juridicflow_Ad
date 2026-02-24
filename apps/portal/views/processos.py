@@ -21,7 +21,7 @@ from apps.customers.models import Customer
 from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.views._helpers import log_activity, parse_json_body
 
-from apps.shared.permissions import require_role, require_action
+from apps.shared.permissions import require_membership_perm
 from apps.portal.audit import audited
 
 
@@ -81,7 +81,7 @@ def processos(request):
 # ==================== CREATE / EDIT ====================
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("processes.add_process")
 @require_http_methods(["GET", "POST"])
 def processo_create(request):
     if request.method == "POST":
@@ -112,7 +112,7 @@ def processo_create(request):
 
 
 @require_portal_access()
-@require_role("lawyer")
+@require_membership_perm("processes.change_process")
 @require_http_methods(["GET", "POST"])
 def processo_edit(request, process_id):
     process = get_object_or_404(
@@ -191,7 +191,7 @@ def processo_detail(request, process_id):
 # ==================== DELETE ====================
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("processes.delete_process")
 @audited(action="delete", model_name="Process")
 @require_http_methods(["POST"])
 def processo_delete(request, process_id):
@@ -210,7 +210,7 @@ def processo_delete(request, process_id):
 # ==================== PARTES (AJAX) ====================
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("processes.change_process")
 @require_http_methods(["POST"])
 def processo_party_add(request, process_id):
     process = get_object_or_404(
@@ -255,7 +255,7 @@ def processo_party_add(request, process_id):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("processes.change_process")
 @require_http_methods(["POST"])
 def processo_party_remove(request, process_id, party_id):
     process = get_object_or_404(Process, id=process_id, organization=request.organization, office=request.office)
@@ -267,7 +267,7 @@ def processo_party_remove(request, process_id, party_id):
 # ==================== NOTAS (AJAX) ====================
 
 @require_portal_json()
-@require_role("intern")
+@require_membership_perm("processes.view_process")
 @require_http_methods(["POST"])
 def processo_note_add(request, process_id):
     process = get_object_or_404(
@@ -298,7 +298,7 @@ def processo_note_add(request, process_id):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("processes.change_process")
 @require_http_methods(["POST"])
 def processo_note_delete(request, process_id, note_id):
     process = get_object_or_404(Process, id=process_id, organization=request.organization, office=request.office)
@@ -310,7 +310,7 @@ def processo_note_delete(request, process_id, note_id):
 # ==================== PRAZOS (AJAX) ====================
 
 @require_portal_json()
-@require_role("intern")
+@require_membership_perm("deadlines.add_deadline")
 @require_http_methods(["POST"])
 def processo_prazo_add(request, process_id):
     process = get_object_or_404(
@@ -366,7 +366,7 @@ def processo_prazo_add(request, process_id):
 
 
 @require_portal_json()
-@require_role("lawyer")
+@require_membership_perm("deadlines.change_deadline")
 @require_http_methods(["POST"])
 def processo_prazo_complete(request, process_id, deadline_id):
     process = get_object_or_404(Process, id=process_id, organization=request.organization, office=request.office)
@@ -380,7 +380,7 @@ def processo_prazo_complete(request, process_id, deadline_id):
 # ==================== DOCUMENTOS (AJAX) ====================
 
 @require_portal_json()
-@require_role("intern")
+@require_membership_perm("documents.add_document")
 @require_http_methods(["POST"])
 def processo_documento_upload(request, process_id):
     process = get_object_or_404(

@@ -145,4 +145,13 @@ urlpatterns = [
     path("app/financeiro/propostas/<int:proposal_id>/", views.financeiro_proposta_detail, name="financeiro_proposta_detail"),
     path("app/financeiro/propostas/<int:proposal_id>/status/", views.financeiro_proposta_status, name="financeiro_proposta_status"),
     path("app/financeiro/propostas/<int:proposal_id>/converter/", views.financeiro_proposta_converter, name="financeiro_proposta_converter"),
+    # Equipe / Team management
+    path("app/equipe/", views.equipe, name="equipe"),
+    path("app/equipe/membro/add/", views.equipe_membro_add, name="equipe_membro_add"),
+    path("app/equipe/membro/<int:membership_id>/update/", views.equipe_membro_update, name="equipe_membro_update"),
+    path("app/equipe/membro/<int:membership_id>/remove/", views.equipe_membro_remove, name="equipe_membro_remove"),
+    path("app/equipe/funcoes/", views.equipe_funcoes, name="equipe_funcoes"),
+    path("app/equipe/funcoes/create/", views.equipe_funcao_create, name="equipe_funcao_create"),
+    path("app/equipe/funcoes/<int:role_id>/update/", views.equipe_funcao_update, name="equipe_funcao_update"),
+    path("app/equipe/funcoes/<int:role_id>/delete/", views.equipe_funcao_delete, name="equipe_funcao_delete"),
 ]

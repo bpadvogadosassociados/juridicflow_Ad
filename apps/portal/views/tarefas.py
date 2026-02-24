@@ -15,7 +15,7 @@ from apps.portal.models import KanbanBoard, KanbanColumn, KanbanCard
 from apps.portal.decorators import require_portal_access, require_portal_json
 from apps.portal.views._helpers import parse_json_body, log_activity
 
-from apps.shared.permissions import require_role, require_action
+from apps.shared.permissions import require_membership_perm
 from apps.portal.audit import audited
 
 # ==================== HTML ====================
@@ -125,7 +125,7 @@ def kanban_board_json(request):
 # ==================== COLUMNS ====================
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("portal.add_kanbancolumn")
 @require_http_methods(["POST"])
 def kanban_column_create(request):
     org = request.organization
@@ -149,7 +149,7 @@ def kanban_column_create(request):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("portal.change_kanbancolumn")
 @require_http_methods(["POST"])
 def kanban_column_update(request, column_id):
     col = get_object_or_404(
@@ -168,7 +168,7 @@ def kanban_column_update(request, column_id):
 
 
 @require_portal_json()
-@require_role("manager")
+@require_membership_perm("portal.delete_kanbancolumn")
 @require_http_methods(["POST"])
 def kanban_column_delete(request, column_id):
     col = get_object_or_404(
@@ -185,7 +185,7 @@ def kanban_column_delete(request, column_id):
 # ==================== CARDS ====================
 
 @require_portal_json()
-@require_role("assistant")
+@require_membership_perm("portal.add_kanbancard")
 @require_http_methods(["POST"])
 def kanban_card_create(request):
     org = request.organization
@@ -231,7 +231,7 @@ def kanban_card_create(request):
 
 
 @require_portal_json()
-@require_role("assistant")
+@require_membership_perm("portal.change_kanbancard")
 @require_http_methods(["POST"])
 def kanban_card_update(request, card_id):
     card = get_object_or_404(
@@ -252,7 +252,7 @@ def kanban_card_update(request, card_id):
 
 
 @require_portal_json()
-@require_role("assistant")
+@require_membership_perm("portal.change_kanbancard")
 @require_http_methods(["POST"])
 def kanban_card_move(request):
     payload = parse_json_body(request)
