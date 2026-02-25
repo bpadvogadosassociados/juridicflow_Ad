@@ -105,14 +105,14 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-CORS_ALLOWED_ORIGINS = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+CORS_ALLOWED_ORIGINS = ["http://localhost:5173"]
 CORS_ALLOW_CREDENTIALS = True
 
 
 from corsheaders.defaults import default_headers
 
 # CORS
-CORS_ALLOW_HEADERS = list(default_headers) + ["x-office-id"]
+CORS_ALLOW_HEADERS = [*default_headers, "x-office-id"]
 # Em desenvolvimento, é comum precisar abrir o CORS para testar em IPs/ports diferentes.
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True

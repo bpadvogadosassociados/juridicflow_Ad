@@ -19,7 +19,7 @@
         <dt class="col-sm-3">Título:</dt><dd class="col-sm-9"><strong>{{ document.title }}</strong></dd>
         <dt class="col-sm-3">Categoria:</dt><dd class="col-sm-9">{{ document.get_category_display }}</dd>
         <dt class="col-sm-3">Status:</dt><dd class="col-sm-9"><span class="badge badge-info">{{ document.get_status_display }}</span></dd>
-        <dt class="col-sm-3">Arquivo:</dt><dd class="col-sm-9">{{ document.file.name|basename }} ({{ document.file_size_mb }} MB)</dd>
+        <dt class="col-sm-3">Arquivo:</dt><dd class="col-sm-9">{{ document.file.name }} ({{ document.file_size_mb }} MB)</dd>
         {% if document.description %}<dt class="col-sm-3">Descrição:</dt><dd class="col-sm-9">{{ document.description }}</dd>{% endif %}
         {% if document.tags %}<dt class="col-sm-3">Tags:</dt><dd class="col-sm-9">{% for tag in document.tag_list %}<span class="badge badge-info">{{ tag }}</span> {% endfor %}</dd>{% endif %}
         {% if document.process %}<dt class="col-sm-3">Processo:</dt><dd class="col-sm-9"><a href="{% url 'portal:processo_detail' document.process.id %}">{{ document.process.number }}</a></dd>{% endif %}
@@ -30,7 +30,7 @@
     
     <div class="card"><div class="card-header"><h3 class="card-title">Versões ({{ versions|length }})</h3></div><div class="card-body p-0">
       <table class="table"><tbody>
-      {% for v in versions %}<tr><td>v{{ v.version_number }}</td><td>{{ v.file.name|basename }}</td><td>{{ v.file_size_mb }} MB</td><td>{{ v.created_at|date:"d/m/Y H:i" }}</td><td><a href="{% url 'portal:documento_version_download' v.id %}" class="btn btn-sm btn-success"><i class="fas fa-download"></i></a></td></tr>
+      {% for v in versions %}<tr><td>v{{ v.version_number }}</td><td>{{ v.file.name }}</td><td>{{ v.file_size_mb }} MB</td><td>{{ v.created_at|date:"d/m/Y H:i" }}</td><td><a href="{% url 'portal:documento_version_download' v.id %}" class="btn btn-sm btn-success"><i class="fas fa-download"></i></a></td></tr>
       {% empty %}<tr><td colspan="5" class="text-center text-muted p-3">Sem versões.</td></tr>{% endfor %}
       </tbody></table>
     </div></div>
