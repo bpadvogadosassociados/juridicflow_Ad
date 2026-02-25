@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import FullCalendar from '@fullcalendar/react'
@@ -10,14 +9,6 @@ import { List } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { deadlinesApi } from '@/api/deadlines'
-import { cn } from '@/lib/utils'
-
-const PRIORITY_COLORS: Record<string, string> = {
-  urgent: '#ef4444',
-  high: '#f97316',
-  medium: '#3b82f6',
-  low: '#94a3b8',
-}
 
 const STATUS_COLORS: Record<string, string> = {
   overdue: '#ef4444',
@@ -29,9 +20,9 @@ const STATUS_COLORS: Record<string, string> = {
 export function DeadlineCalendarPage() {
   const navigate = useNavigate()
 
-  const { data, isLoading } = useQuery({
+  const { data } = useQuery({
     queryKey: ['deadlines-calendar'],
-    queryFn: () => deadlinesApi.list({ page: 1 }),
+    queryFn: () => deadlinesApi.list({ page: 1, page_size: 200 }),
     staleTime: 60_000,
   })
 
@@ -42,18 +33,17 @@ export function DeadlineCalendarPage() {
     title: d.title,
     date: d.due_date,
     allDay: true,
-    backgroundColor: STATUS_COLORS[d.status] ?? PRIORITY_COLORS[d.priority] ?? '#3b82f6',
-    borderColor: STATUS_COLORS[d.status] ?? PRIORITY_COLORS[d.priority] ?? '#3b82f6',
+    backgroundColor: STATUS_COLORS[d.status] ?? '#3b82f6',
+    borderColor: STATUS_COLORS[d.status] ?? '#3b82f6',
     textColor: '#fff',
-    extendedProps: { deadline: d },
   }))
 
-  const handleEventClick = (arg: EventClickArg) => {
+  const handleEventClick = (_arg: EventClickArg) => {
     navigate('/app/prazos')
   }
 
   return (
-    <div className="page-enter flex flex-col h-full">
+    <div className="page-enter">
       <PageHeader
         title="Calendário de Prazos"
         subtitle={`${deadlines.length} prazo${deadlines.length !== 1 ? 's' : ''} visíveis`}
@@ -79,7 +69,7 @@ export function DeadlineCalendarPage() {
         ))}
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex-1 fc-wrapper">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden fc-wrapper">
         <style>{`
           .fc-wrapper .fc { font-family: inherit; }
           .fc-wrapper .fc-toolbar-title { font-size: 1rem; font-weight: 600; color: #1e293b; }
@@ -97,7 +87,7 @@ export function DeadlineCalendarPage() {
           plugins={[dayGridPlugin, listPlugin, interactionPlugin]}
           initialView="dayGridMonth"
           locale="pt-br"
-          height="100%"
+          height={650}
           events={fcEvents}
           eventClick={handleEventClick}
           dayMaxEvents={4}

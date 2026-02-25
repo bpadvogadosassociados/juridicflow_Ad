@@ -5,7 +5,6 @@ import { LoginPage } from '@/pages/auth/LoginPage'
 import { ChooseOfficePage } from '@/pages/auth/ChooseOfficePage'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 
-// Lazy placeholders para sprints futuras
 import { lazy } from 'react'
 
 const ProcessListPage = lazy(() => import('@/pages/processes/ProcessListPage').then(m => ({ default: m.ProcessListPage })))
@@ -19,8 +18,6 @@ const CustomerFormPage = lazy(() => import('@/pages/customers/CustomerFormPage')
 
 const DeadlineListPage = lazy(() => import('@/pages/deadlines/DeadlineListPage').then(m => ({ default: m.DeadlineListPage })))
 const DeadlineCalendarPage = lazy(() => import('@/pages/deadlines/DeadlineCalendarPage').then(m => ({ default: m.DeadlineCalendarPage })))
-
-const KanbanPage = lazy(() => import('@/pages/kanban/KanbanPage').then(m => ({ default: m.KanbanPage })))
 
 const TaskListPage = lazy(() => import('@/pages/tasks/TaskListPage').then(m => ({ default: m.TaskListPage })))
 const TaskKanbanPage = lazy(() => import('@/pages/tasks/TaskKanbanPage').then(m => ({ default: m.TaskKanbanPage })))
@@ -38,81 +35,81 @@ const ProposalListPage = lazy(() => import('@/pages/finance/ProposalListPage').t
 const CalendarPage = lazy(() => import('@/pages/calendar/CalendarPage').then(m => ({ default: m.CalendarPage })))
 
 const ReportsDashboardPage = lazy(() => import('@/pages/reports/ReportsDashboardPage').then(m => ({ default: m.ReportsDashboardPage })))
-
-const TeamListPage = lazy(() => import('@/pages/team/TeamListPage').then(m => ({ default: m.TeamListPage })))
-const TeamRolesPage = lazy(() => import('@/pages/team/TeamRolesPage').then(m => ({ default: m.TeamRolesPage })))
-
 const SettingsPage = lazy(() => import('@/pages/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
 
+// Coming soon pages
+const ComingTeamPage = lazy(() => import('@/pages/coming/ComingTeamPage').then(m => ({ default: m.ComingTeamPage })))
+const ComingWhatsAppPage = lazy(() => import('@/pages/coming/ComingWhatsAppPage').then(m => ({ default: m.ComingWhatsAppPage })))
+const ComingAndamentosPage = lazy(() => import('@/pages/coming/ComingAndamentosPage').then(m => ({ default: m.ComingAndamentosPage })))
+
 export const router = createBrowserRouter([
-  // Públicas
-  { path: '/login', element: <LoginPage /> },
-
-  // Seleção de escritório (autenticado, sem officeId)
   {
-    element: <ProtectedRoute requireOffice={false} />,
-    children: [{ path: '/escolher-escritorio', element: <ChooseOfficePage /> }],
+    path: '/login',
+    element: <LoginPage />,
   },
-
-  // Área protegida — dentro do AppLayout
+  {
+    path: '/escolher-escritorio',
+    element: <ChooseOfficePage />,
+  },
   {
     element: <ProtectedRoute />,
     children: [
       {
-        path: '/app',
         element: <AppLayout />,
         children: [
-          { index: true, element: <Navigate to="/app/dashboard" replace /> },
-          { path: 'dashboard', element: <DashboardPage /> },
+          // Dashboard
+          { path: '/app/dashboard', element: <DashboardPage /> },
 
           // Processos
-          { path: 'processos', element: <ProcessListPage /> },
-          { path: 'processos/novo', element: <ProcessFormPage /> },
-          { path: 'processos/:id', element: <ProcessDetailPage /> },
-          { path: 'processos/:id/editar', element: <ProcessFormPage /> },
+          { path: 'app/processos', element: <ProcessListPage /> },
+          { path: 'app/processos/novo', element: <ProcessFormPage /> },
+          { path: 'app/processos/:id', element: <ProcessDetailPage /> },
+          { path: 'app/processos/:id/editar', element: <ProcessFormPage /> },
 
           // Contatos
-          { path: 'contatos', element: <CustomerListPage /> },
-          { path: 'contatos/pipeline', element: <CustomerPipelinePage /> },
-          { path: 'contatos/novo', element: <CustomerFormPage /> },
-          { path: 'contatos/:id', element: <CustomerDetailPage /> },
-          { path: 'contatos/:id/editar', element: <CustomerFormPage /> },
+          { path: 'app/contatos', element: <CustomerListPage /> },
+          { path: 'app/contatos/pipeline', element: <CustomerPipelinePage /> },
+          { path: 'app/contatos/novo', element: <CustomerFormPage /> },
+          { path: 'app/contatos/:id', element: <CustomerDetailPage /> },
+          { path: 'app/contatos/:id/editar', element: <CustomerFormPage /> },
 
           // Prazos
-          { path: 'prazos', element: <DeadlineListPage /> },
-          { path: 'prazos/calendario', element: <DeadlineCalendarPage /> },
-
-          // Kanban de atividades
-          { path: 'kanban', element: <KanbanPage /> },
+          { path: 'app/prazos', element: <DeadlineListPage /> },
+          { path: 'app/prazos/calendario', element: <DeadlineCalendarPage /> },
 
           // Tarefas
-          { path: 'tarefas', element: <TaskListPage /> },
-          { path: 'tarefas/kanban', element: <TaskKanbanPage /> },
+          { path: 'app/tarefas', element: <TaskListPage /> },
+          { path: 'app/tarefas/kanban', element: <TaskKanbanPage /> },
 
           // Documentos
-          { path: 'documentos', element: <DocumentListPage /> },
-          { path: 'documentos/:id', element: <DocumentDetailPage /> },
+          { path: 'app/documentos', element: <DocumentListPage /> },
+          { path: 'app/documentos/:id', element: <DocumentDetailPage /> },
 
           // Financeiro
-          { path: 'financeiro', element: <FinanceDashboardPage /> },
-          { path: 'financeiro/contratos', element: <AgreementListPage /> },
-          { path: 'financeiro/contratos/:id', element: <AgreementDetailPage /> },
-          { path: 'financeiro/faturas', element: <InvoiceListPage /> },
-          { path: 'financeiro/despesas', element: <ExpenseListPage /> },
-          { path: 'financeiro/propostas', element: <ProposalListPage /> },
+          { path: 'app/financeiro', element: <FinanceDashboardPage /> },
+          { path: 'app/financeiro/contratos', element: <AgreementListPage /> },
+          { path: 'app/financeiro/contratos/:id', element: <AgreementDetailPage /> },
+          { path: 'app/financeiro/faturas', element: <InvoiceListPage /> },
+          { path: 'app/financeiro/despesas', element: <ExpenseListPage /> },
+          { path: 'app/financeiro/propostas', element: <ProposalListPage /> },
 
           // Agenda
-          { path: 'agenda', element: <CalendarPage /> },
+          { path: 'app/agenda', element: <CalendarPage /> },
+
+          // Andamentos (coming soon)
+          { path: 'app/andamentos', element: <ComingAndamentosPage /> },
+
+          // WhatsApp (coming soon)
+          { path: 'app/whatsapp', element: <ComingWhatsAppPage /> },
 
           // Relatórios
-          { path: 'relatorios', element: <ReportsDashboardPage /> },
+          { path: 'app/relatorios', element: <ReportsDashboardPage /> },
 
-          // Equipe
-          { path: 'equipe', element: <TeamListPage /> },
-          { path: 'equipe/funcoes', element: <TeamRolesPage /> },
+          // Equipe (coming soon)
+          { path: 'app/equipe', element: <ComingTeamPage /> },
 
           // Configurações
-          { path: 'configuracoes', element: <SettingsPage /> },
+          { path: 'app/configuracoes', element: <SettingsPage /> },
         ],
       },
     ],

@@ -1,350 +1,223 @@
-import { useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
-import { toast } from 'sonner'
-import { ArrowLeft } from 'lucide-react'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { Plus, Search, SlidersHorizontal, Users, Kanban } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/layout/PageHeader'
+import { DataTable } from '@/components/shared/DataTable'
+import { StatusBadge } from '@/components/shared/StatusBadge'
 import { customersApi } from '@/api/customers'
-import { CUSTOMER_STATUS_LABELS, PIPELINE_STAGE_LABELS, ORIGIN_LABELS } from '@/lib/constants'
+import { formatDocument, formatDate, truncate, initials } from '@/lib/utils'
+import { CUSTOMER_STATUS_LABELS, PIPELINE_STAGE_LABELS } from '@/lib/constants'
+import { useDebounce } from '@/hooks/useDebounce'
+import { usePagination } from '@/hooks/usePagination'
 import { cn } from '@/lib/utils'
+import type { Customer } from '@/types/customer'
 
-const schema = z.object({
-  name: z.string().min(2, 'Nome obrigatório'),
-  type: z.enum(['PF', 'PJ']).default('PF'),
-  status: z.string().default('lead'),
-  document: z.string().optional().default(''),
-  email: z.string().email('E-mail inválido').optional().or(z.literal('')),
-  phone: z.string().optional().default(''),
-  phone_secondary: z.string().optional().default(''),
-  whatsapp: z.string().optional().default(''),
-  address_street: z.string().optional().default(''),
-  address_number: z.string().optional().default(''),
-  address_complement: z.string().optional().default(''),
-  address_neighborhood: z.string().optional().default(''),
-  address_city: z.string().optional().default(''),
-  address_state: z.string().max(2).optional().default(''),
-  address_zipcode: z.string().optional().default(''),
-  profession: z.string().optional().default(''),
-  birth_date: z.string().optional().default(''),
-  nationality: z.string().optional().default('Brasileira'),
-  marital_status: z.string().optional().default(''),
-  company_name: z.string().optional().default(''),
-  origin: z.string().optional().default('other'),
-  referral_name: z.string().optional().default(''),
-  notes: z.string().optional().default(''),
-  internal_notes: z.string().optional().default(''),
-  pipeline_stage: z.string().optional().default(''),
-  next_action: z.string().optional().default(''),
-  next_action_date: z.string().optional().default(''),
-  estimated_value: z.string().optional().default(''),
-})
+const TYPE_LABELS: Record<string, string> = { PF: 'Pessoa Física', PJ: 'Pessoa Jurídica' }
 
-type FormData = z.infer<typeof schema>
-
-const MARITAL_STATUS_OPTIONS = [
-  { value: 'solteiro', label: 'Solteiro(a)' },
-  { value: 'casado', label: 'Casado(a)' },
-  { value: 'divorciado', label: 'Divorciado(a)' },
-  { value: 'viuvo', label: 'Viúvo(a)' },
-  { value: 'uniao_estavel', label: 'União Estável' },
-]
-
-export function CustomerFormPage() {
-  const { id } = useParams<{ id?: string }>()
+export function CustomerListPage() {
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const isEdit = !!id
-  const customerId = id ? Number(id) : null
+  const { page, setPage, reset } = usePagination()
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
 
-  const { data: existing, isLoading: loadingExisting } = useQuery({
-    queryKey: ['customer', customerId],
-    queryFn: () => customersApi.get(customerId!),
-    enabled: isEdit && !!customerId,
+  const debouncedSearch = useDebounce(search, 300)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['customers', { page, search: debouncedSearch, status: statusFilter, type: typeFilter }],
+    queryFn: () =>
+      customersApi.list({
+        page,
+        search: debouncedSearch || undefined,
+        status: statusFilter || undefined,
+        type: typeFilter || undefined,
+      }),
+    staleTime: 30_000,
   })
 
-  const { register, handleSubmit, formState: { errors }, setValue, watch, reset } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: { type: 'PF', status: 'lead', origin: 'other' },
-  })
+  const hasFilters = !!(statusFilter || typeFilter)
 
-  useEffect(() => {
-    if (existing) {
-      reset({
-        name: existing.name,
-        type: existing.type,
-        status: existing.status,
-        document: existing.document ?? '',
-        email: existing.email ?? '',
-        phone: existing.phone ?? '',
-        phone_secondary: existing.phone_secondary ?? '',
-        whatsapp: existing.whatsapp ?? '',
-        address_street: existing.address_street ?? '',
-        address_number: existing.address_number ?? '',
-        address_complement: existing.address_complement ?? '',
-        address_neighborhood: existing.address_neighborhood ?? '',
-        address_city: existing.address_city ?? '',
-        address_state: existing.address_state ?? '',
-        address_zipcode: existing.address_zipcode ?? '',
-        profession: existing.profession ?? '',
-        birth_date: existing.birth_date ?? '',
-        nationality: existing.nationality ?? 'Brasileira',
-        marital_status: existing.marital_status ?? '',
-        company_name: existing.company_name ?? '',
-        origin: existing.origin ?? 'other',
-        referral_name: existing.referral_name ?? '',
-        notes: existing.notes ?? '',
-        internal_notes: existing.internal_notes ?? '',
-        pipeline_stage: existing.pipeline_stage ?? '',
-        next_action: existing.next_action ?? '',
-        next_action_date: existing.next_action_date ?? '',
-        estimated_value: existing.estimated_value ?? '',
-      })
-    }
-  }, [existing, reset])
-
-  const createMutation = useMutation({
-    mutationFn: (data: FormData) => customersApi.create({
-      ...data,
-      birth_date: data.birth_date || null,
-      next_action_date: data.next_action_date || null,
-      estimated_value: data.estimated_value || null,
-    }),
-    onSuccess: (res) => {
-      toast.success('Contato cadastrado!')
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
-      navigate(`/app/contatos/${res.id}`)
+  const columns = [
+    {
+      key: 'name',
+      header: 'Contato',
+      render: (row: Customer) => (
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0',
+            row.type === 'PJ' ? 'bg-violet-100 text-violet-600' : 'bg-blue-100 text-blue-600',
+          )}>
+            {initials(row.name)}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-slate-900">{row.name}</p>
+            {row.email && <p className="text-[11px] text-slate-400">{row.email}</p>}
+          </div>
+        </div>
+      ),
     },
-    onError: (err: any) => toast.error(err?.response?.data?.detail ?? 'Erro ao salvar.'),
-  })
-
-  const updateMutation = useMutation({
-    mutationFn: (data: FormData) => customersApi.update(customerId!, {
-      ...data,
-      birth_date: data.birth_date || null,
-      next_action_date: data.next_action_date || null,
-      estimated_value: data.estimated_value || null,
-    }),
-    onSuccess: () => {
-      toast.success('Contato atualizado.')
-      queryClient.invalidateQueries({ queryKey: ['customers'] })
-      queryClient.invalidateQueries({ queryKey: ['customer', customerId] })
-      navigate(`/app/contatos/${customerId}`)
+    {
+      key: 'type',
+      header: 'Tipo',
+      render: (row: Customer) => (
+        <span className={cn(
+          'text-xs px-2 py-0.5 rounded-md font-medium',
+          row.type === 'PJ' ? 'bg-violet-50 text-violet-700' : 'bg-blue-50 text-blue-700',
+        )}>
+          {TYPE_LABELS[row.type] ?? row.type}
+        </span>
+      ),
     },
-    onError: () => toast.error('Erro ao atualizar.'),
-  })
-
-  const onSubmit = (data: FormData) => {
-    if (isEdit) updateMutation.mutate(data)
-    else createMutation.mutate(data)
-  }
-
-  const isPending = createMutation.isPending || updateMutation.isPending
-  const watchedType = watch('type')
-
-  if (isEdit && loadingExisting) return <div className="h-64 bg-slate-100 rounded-xl animate-pulse max-w-3xl mx-auto" />
+    {
+      key: 'status',
+      header: 'Status',
+      render: (row: Customer) => <StatusBadge value={row.status} variant="customer-status" />,
+    },
+    {
+      key: 'pipeline',
+      header: 'Pipeline',
+      render: (row: Customer) =>
+        row.pipeline_stage
+          ? <span className="text-xs text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">{PIPELINE_STAGE_LABELS[row.pipeline_stage] ?? row.pipeline_stage}</span>
+          : <span className="text-slate-300 text-xs">—</span>,
+    },
+    {
+      key: 'document',
+      header: 'CPF/CNPJ',
+      render: (row: Customer) => (
+        <span className="text-xs font-mono text-slate-500">{formatDocument(row.document)}</span>
+      ),
+    },
+    {
+      key: 'phone',
+      header: 'Telefone',
+      render: (row: Customer) => <span className="text-xs text-slate-500">{row.phone || '—'}</span>,
+    },
+    {
+      key: 'responsible',
+      header: 'Responsável',
+      render: (row: Customer) => <span className="text-xs text-slate-500">{row.responsible_name ?? '—'}</span>,
+    },
+    {
+      key: 'last_contact',
+      header: 'Últ. Contato',
+      render: (row: Customer) => (
+        <span className="text-xs text-slate-400">{formatDate(row.last_interaction_date)}</span>
+      ),
+    },
+  ]
 
   return (
-    <div className="max-w-3xl mx-auto page-enter">
+    <div className="max-w-7xl mx-auto page-enter">
       <PageHeader
-        title={isEdit ? 'Editar Contato' : 'Novo Contato'}
-        breadcrumbs={[{ label: 'Contatos', href: '/app/contatos' }, { label: isEdit ? 'Editar' : 'Novo' }]}
+        title="Contatos"
+        subtitle={data ? `${data.count} contato${data.count !== 1 ? 's' : ''}` : undefined}
+        breadcrumbs={[{ label: 'JuridicFlow' }, { label: 'Contatos' }]}
         actions={
-          <Button variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-2">
-            <ArrowLeft size={14} /> Voltar
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline" size="sm"
+              onClick={() => navigate('/app/contatos/pipeline')}
+              className="gap-2 h-9"
+            >
+              <Kanban size={14} /> Pipeline
+            </Button>
+            <Button
+              onClick={() => navigate('/app/contatos/novo')}
+              className="bg-blue-600 hover:bg-blue-700 gap-2 h-9"
+            >
+              <Plus size={15} /> Novo Contato
+            </Button>
+          </div>
         }
       />
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-        {/* Dados Básicos */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Dados Básicos</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <F label="Nome / Razão Social *" error={errors.name?.message}>
-              <Input {...register('name')} placeholder="Nome completo ou razão social" className={cn(errors.name && 'border-red-300')} />
-            </F>
-            <div className="grid grid-cols-3 gap-4">
-              <F label="Tipo">
-                <Select value={watchedType} onValueChange={(v) => setValue('type', v as 'PF' | 'PJ')}>
-                  <SelectTrigger className="h-9 text-sm border-slate-200"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PF">Pessoa Física</SelectItem>
-                    <SelectItem value="PJ">Pessoa Jurídica</SelectItem>
-                  </SelectContent>
-                </Select>
-              </F>
-              <F label="Status">
-                <Select value={watch('status')} onValueChange={(v) => setValue('status', v)}>
-                  <SelectTrigger className="h-9 text-sm border-slate-200"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(CUSTOMER_STATUS_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </F>
-              <F label="CPF / CNPJ">
-                <Input {...register('document')} placeholder={watchedType === 'PJ' ? '00.000.000/0001-00' : '000.000.000-00'} className="font-mono" />
-              </F>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Contato */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-3"><CardTitle className="text-sm">Contato</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <F label="E-mail" error={errors.email?.message}>
-                <Input {...register('email')} type="email" placeholder="email@exemplo.com" />
-              </F>
-              <F label="Telefone">
-                <Input {...register('phone')} placeholder="(00) 00000-0000" />
-              </F>
-              <F label="Tel. Secundário">
-                <Input {...register('phone_secondary')} placeholder="(00) 00000-0000" />
-              </F>
-              <F label="WhatsApp">
-                <Input {...register('whatsapp')} placeholder="(00) 00000-0000" />
-              </F>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Dados específicos PF/PJ */}
-        {watchedType === 'PF' ? (
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader className="pb-3"><CardTitle className="text-sm">Dados Pessoais</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <F label="Data de Nascimento">
-                  <Input type="date" {...register('birth_date')} />
-                </F>
-                <F label="Estado Civil">
-                  <Select value={watch('marital_status') || ''} onValueChange={(v) => setValue('marital_status', v)}>
-                    <SelectTrigger className="h-9 text-sm border-slate-200"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                    <SelectContent>
-                      {MARITAL_STATUS_OPTIONS.map(({ value, label }) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </F>
-                <F label="Profissão">
-                  <Input {...register('profession')} placeholder="Ex: Empresário" />
-                </F>
-                <F label="Nacionalidade">
-                  <Input {...register('nationality')} placeholder="Brasileira" />
-                </F>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader className="pb-3"><CardTitle className="text-sm">Dados Empresariais</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <F label="Nome Fantasia">
-                <Input {...register('company_name')} placeholder="Nome fantasia ou marca" />
-              </F>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Endereço */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-3"><CardTitle className="text-sm">Endereço</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
-              <div className="col-span-2">
-                <F label="Logradouro"><Input {...register('address_street')} placeholder="Rua, Av." /></F>
-              </div>
-              <F label="Número"><Input {...register('address_number')} placeholder="123" /></F>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <F label="Complemento"><Input {...register('address_complement')} placeholder="Sala, Apto" /></F>
-              <F label="Bairro"><Input {...register('address_neighborhood')} /></F>
-              <F label="Cidade"><Input {...register('address_city')} /></F>
-              <div className="grid grid-cols-2 gap-2">
-                <F label="UF"><Input {...register('address_state')} maxLength={2} placeholder="SP" className="uppercase" /></F>
-                <F label="CEP"><Input {...register('address_zipcode')} placeholder="00000-000" /></F>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* CRM */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-3"><CardTitle className="text-sm">CRM / Pipeline</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <F label="Etapa do Pipeline">
-                <Select value={watch('pipeline_stage') || ''} onValueChange={(v) => setValue('pipeline_stage', v)}>
-                  <SelectTrigger className="h-9 text-sm border-slate-200"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(PIPELINE_STAGE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </F>
-              <F label="Valor Estimado (R$)">
-                <Input {...register('estimated_value')} type="number" step="0.01" placeholder="0,00" />
-              </F>
-              <F label="Origem">
-                <Select value={watch('origin') || 'other'} onValueChange={(v) => setValue('origin', v)}>
-                  <SelectTrigger className="h-9 text-sm border-slate-200"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(ORIGIN_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </F>
-              <F label="Indicado por">
-                <Input {...register('referral_name')} placeholder="Nome do indicador" />
-              </F>
-            </div>
-            <F label="Próxima Ação">
-              <Input {...register('next_action')} placeholder="O que precisa ser feito" />
-            </F>
-          </CardContent>
-        </Card>
-
-        {/* Notas */}
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="pb-3"><CardTitle className="text-sm">Observações</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <F label="Notas Gerais">
-              <Textarea {...register('notes')} rows={3} className="resize-none text-sm" placeholder="Observações visíveis para a equipe" />
-            </F>
-            <F label="Notas Internas">
-              <Textarea {...register('internal_notes')} rows={2} className="resize-none text-sm" placeholder="Notas privadas / confidenciais" />
-            </F>
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-end gap-3 pt-2 pb-6">
-          <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancelar</Button>
-          <Button type="submit" disabled={isPending} className="bg-blue-600 hover:bg-blue-700 min-w-32">
-            {isPending ? (
-              <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />Salvando…</>
-            ) : isEdit ? 'Salvar Alterações' : 'Criar Contato'}
-          </Button>
+      <div className="flex gap-3 mb-5">
+        <div className="relative flex-1 max-w-md">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Input
+            placeholder="Buscar por nome, e-mail ou documento…"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); reset() }}
+            className="pl-9 h-9 bg-white border-slate-200 text-sm"
+          />
         </div>
-      </form>
-    </div>
-  )
-}
+        <Button
+          variant="outline" size="sm"
+          onClick={() => setShowFilters(!showFilters)}
+          className={`gap-2 h-9 ${hasFilters ? 'border-blue-300 text-blue-600 bg-blue-50' : ''}`}
+        >
+          <SlidersHorizontal size={14} /> Filtros
+          {hasFilters && (
+            <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
+              {[statusFilter, typeFilter].filter(Boolean).length}
+            </span>
+          )}
+        </Button>
+      </div>
 
-function F({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-slate-600">{label}</Label>
-      {children}
-      {error && <p className="text-xs text-red-500">{error}</p>}
+      {showFilters && (
+        <div className="flex flex-wrap gap-3 mb-5 p-4 bg-slate-50 rounded-xl border border-slate-200 animate-fade-in">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-slate-500">Status</label>
+            <Select value={statusFilter || 'all'} onValueChange={(v) => { setStatusFilter(v === 'all' ? '' : v); reset() }}>
+              <SelectTrigger className="h-9 w-36 bg-white text-sm border-slate-200"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {Object.entries(CUSTOMER_STATUS_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-slate-500">Tipo</label>
+            <Select value={typeFilter || 'all'} onValueChange={(v) => { setTypeFilter(v === 'all' ? '' : v); reset() }}>
+              <SelectTrigger className="h-9 w-36 bg-white text-sm border-slate-200"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {Object.entries(TYPE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          {hasFilters && (
+            <div className="flex items-end">
+              <Button variant="ghost" size="sm" className="h-9 text-xs text-slate-500"
+                onClick={() => { setStatusFilter(''); setTypeFilter(''); reset() }}>
+                Limpar
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <DataTable
+        columns={columns}
+        data={data?.results ?? []}
+        keyFn={(row) => row.id}
+        isLoading={isLoading}
+        total={data?.count}
+        page={page}
+        pageSize={25}
+        onPageChange={setPage}
+        onRowClick={(row) => navigate(`/app/contatos/${row.id}`)}
+        emptyTitle="Nenhum contato encontrado"
+        emptyDescription={
+          hasFilters || search
+            ? 'Tente ajustar os filtros.'
+            : 'Clique em "Novo Contato" para cadastrar o primeiro cliente.'
+        }
+        emptyAction={
+          !hasFilters && !search ? (
+            <Button size="sm" className="bg-blue-600 hover:bg-blue-700 gap-2" onClick={() => navigate('/app/contatos/novo')}>
+              <Plus size={14} /> Novo Contato
+            </Button>
+          ) : undefined
+        }
+      />
     </div>
   )
 }

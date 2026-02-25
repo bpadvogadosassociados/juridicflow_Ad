@@ -4,7 +4,6 @@ import {
   Scale,
   Users,
   Clock,
-  Kanban,
   CheckSquare,
   FileText,
   DollarSign,
@@ -15,6 +14,8 @@ import {
   ChevronRight,
   LogOut,
   Building2,
+  MessageSquare,
+  Activity,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
@@ -50,7 +51,6 @@ const NAV_ITEMS: NavItem[] = [
       { label: 'Calendário', href: '/app/prazos/calendario' },
     ],
   },
-  { label: 'Kanban', href: '/app/kanban', icon: <Kanban size={18} /> },
   {
     label: 'Tarefas',
     href: '/app/tarefas',
@@ -74,6 +74,8 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   { label: 'Agenda', href: '/app/agenda', icon: <CalendarDays size={18} /> },
+  { label: 'Andamentos', href: '/app/andamentos', icon: <Activity size={18} /> },
+  { label: 'WhatsApp', href: '/app/whatsapp', icon: <MessageSquare size={18} /> },
   { label: 'Relatórios', href: '/app/relatorios', icon: <BarChart3 size={18} /> },
 ]
 
@@ -84,17 +86,16 @@ const BOTTOM_NAV: NavItem[] = [
 
 export function Sidebar() {
   const { sidebarCollapsed } = useUIStore()
-  const { user, getCurrentMembership, logout } = useAuthStore()
+  const { user, logout } = useAuthStore()
   const navigate = useNavigate()
-  const [expandedItems, setExpandedItems] = useState<string[]>([])
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
 
-  const membership = getCurrentMembership()
-
-  const toggleExpand = (label: string) => {
-    setExpandedItems((prev) =>
-      prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label],
-    )
-  }
+  const toggleExpand = (href: string) =>
+    setExpandedItems(prev => {
+      const next = new Set(prev)
+      next.has(href) ? next.delete(href) : next.add(href)
+      return next
+    })
 
   const handleLogout = () => {
     logout()
@@ -104,95 +105,73 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col h-full bg-sidebar border-r border-sidebar-border transition-all duration-300',
-        sidebarCollapsed ? 'w-16' : 'w-64',
+        'flex flex-col bg-slate-900 text-sidebar-foreground transition-all duration-300 flex-shrink-0',
+        sidebarCollapsed ? 'w-[64px]' : 'w-60',
       )}
+      style={{ colorScheme: 'dark' }}
     >
       {/* Logo */}
-      <div className="h-16 flex items-center px-5 border-b border-sidebar-border flex-shrink-0">
-        {sidebarCollapsed ? (
-          <span className="text-white font-bold text-lg">J</span>
+      <div className={cn('flex items-center h-16 border-b border-white/10 flex-shrink-0', sidebarCollapsed ? 'justify-center px-0' : 'px-5 gap-2')}>
+        {!sidebarCollapsed ? (
+          <span className="text-white font-bold text-base tracking-tight">JuridicFlow</span>
         ) : (
-          <span className="text-lg font-bold tracking-tight">
-            <span className="text-white">Juridic</span>
-            <span className="text-blue-400">Flow</span>
-          </span>
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">JF</div>
         )}
       </div>
 
-      {/* Office badge */}
-      {!sidebarCollapsed && membership && (
-        <div className="mx-3 mt-3 mb-1 px-3 py-2 rounded-lg bg-sidebar-accent flex items-center gap-2">
-          <Building2 size={14} className="text-sidebar-foreground/60 flex-shrink-0" />
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-sidebar-foreground truncate">
-              {membership.office.name}
-            </p>
-            <p className="text-[11px] text-sidebar-foreground/50 truncate">
-              {membership.organization.name}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Main nav */}
-      <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
-        {NAV_ITEMS.map((item) => (
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5 scrollbar-thin">
+        {NAV_ITEMS.map(item => (
           <NavItemComponent
-            key={item.label}
+            key={item.href}
             item={item}
             collapsed={sidebarCollapsed}
-            expanded={expandedItems.includes(item.label)}
-            onToggleExpand={() => toggleExpand(item.label)}
-          />
-        ))}
-
-        <div className="my-2 border-t border-sidebar-border" />
-
-        {BOTTOM_NAV.map((item) => (
-          <NavItemComponent
-            key={item.label}
-            item={item}
-            collapsed={sidebarCollapsed}
-            expanded={false}
-            onToggleExpand={() => {}}
+            expanded={expandedItems.has(item.href)}
+            onToggleExpand={() => toggleExpand(item.href)}
           />
         ))}
       </nav>
 
-      {/* User footer */}
-      <div className="border-t border-sidebar-border p-3 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          {/* Avatar */}
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
-            {initials(user ? `${user.first_name} ${user.last_name}` : user?.email ?? '?')}
-          </div>
+      {/* Bottom nav */}
+      <div className="px-3 py-3 border-t border-white/10 space-y-0.5">
+        {BOTTOM_NAV.map(item => (
+          <NavItemComponent
+            key={item.href}
+            item={item}
+            collapsed={sidebarCollapsed}
+            expanded={expandedItems.has(item.href)}
+            onToggleExpand={() => toggleExpand(item.href)}
+          />
+        ))}
+      </div>
 
-          {!sidebarCollapsed && (
-            <>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-sidebar-foreground truncate">
-                  {user?.first_name} {user?.last_name}
-                </p>
-                <p className="text-[11px] text-sidebar-foreground/50 truncate">{user?.email}</p>
-              </div>
-
-              <button
-                onClick={handleLogout}
-                className="text-sidebar-foreground/40 hover:text-red-400 transition-colors p-1 rounded"
-                title="Sair"
-              >
-                <LogOut size={15} />
-              </button>
-            </>
-          )}
+      {/* User */}
+      <div className={cn('flex items-center gap-2.5 px-3 py-3 border-t border-white/10', sidebarCollapsed && 'justify-center')}>
+        <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+          {initials(user ? `${user.first_name} ${user.last_name}` : user?.email ?? '?')}
         </div>
+
+        {!sidebarCollapsed && (
+          <>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-sidebar-foreground truncate">
+                {user?.first_name} {user?.last_name}
+              </p>
+              <p className="text-[11px] text-sidebar-foreground/50 truncate">{user?.email}</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="text-sidebar-foreground/40 hover:text-red-400 transition-colors p-1 rounded"
+              title="Sair"
+            >
+              <LogOut size={15} />
+            </button>
+          </>
+        )}
       </div>
     </aside>
   )
 }
-
-// ── Item de navegação ─────────────────────────────────────────────────────────
 
 interface NavItemComponentProps {
   item: NavItem
