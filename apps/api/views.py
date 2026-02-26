@@ -634,6 +634,30 @@ class CalendarTemplateViewSet(viewsets.ModelViewSet):
 # Tasks
 # ─────────────────────────────────────────────────────────────────────────────
 
+class UserSearchView(APIView):
+    """GET /api/auth/users/search/?q=nome"""
+    permission_classes = [IsInTenant]
+
+    def get(self, request):
+        from django.db import models as dj_models
+        q = request.query_params.get("q", "").strip()
+        if len(q) < 2:
+            return Response({"results": []})
+        from apps.memberships.models import Membership
+        member_ids = Membership.objects.filter(
+            office=request.office, is_active=True,
+        ).values_list("user_id", flat=True)
+        users = User.objects.filter(id__in=member_ids).filter(
+            dj_models.Q(first_name__icontains=q) |
+            dj_models.Q(last_name__icontains=q) |
+            dj_models.Q(email__icontains=q)
+        )[:10]
+        return Response({"results": [
+            {"id": u.id, "email": u.email,
+             "name": f"{u.first_name} {u.last_name}".strip() or u.email}
+            for u in users
+        ]})
+
 class TaskViewSet(viewsets.ModelViewSet):
     permission_classes = [IsInTenant]
     serializer_class = TaskSerializer
@@ -738,7 +762,7 @@ class GlobalSearchView(APIView):
 
         processes = Process.objects.filter(
             organization=org, office=office
-        ).filter(Q(number__icontains=q) | Q(subject__icontains=q))[:5]
+        ).filter(Q(number__icontains=q) | Q(subject__icontains=q))[:5] 
         for p in processes:
             results.append({
                 "type": "process", "id": p.id,

@@ -4,6 +4,7 @@ import { AppLayout } from '@/components/layout/AppLayout'
 import { LoginPage } from '@/pages/auth/LoginPage'
 import { ChooseOfficePage } from '@/pages/auth/ChooseOfficePage'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
+import { AndamentosPage } from '@/pages/andamentos/AndamentosPage'
 
 import { lazy } from 'react'
 
@@ -97,7 +98,7 @@ export const router = createBrowserRouter([
           { path: 'app/agenda', element: <CalendarPage /> },
 
           // Andamentos (coming soon)
-          { path: 'app/andamentos', element: <ComingAndamentosPage /> },
+          { path: 'app/andamentos', element: <AndamentosPage /> },
 
           // WhatsApp (coming soon)
           { path: 'app/whatsapp', element: <ComingWhatsAppPage /> },

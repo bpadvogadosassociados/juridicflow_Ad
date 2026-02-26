@@ -237,7 +237,7 @@ function OfficeMemberView({ officeName, members, loading }: { officeName: string
         ) : (
           <div className="space-y-2">
             {members.map(m => {
-              const fullName = [m.user.first_name, m.user.last_name].filter(Boolean).join(' ') || m.user.email
+              const fullName = [m?.user?.first_name, m?.user?.last_name].filter(Boolean).join(' ') || m?.user?.email
               return (
                 <div key={m.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-slate-50">
                   <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
@@ -245,7 +245,7 @@ function OfficeMemberView({ officeName, members, loading }: { officeName: string
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-800 truncate">{fullName}</p>
-                    <p className="text-xs text-slate-400 truncate">{m.user.email}</p>
+                    <p className="text-xs text-slate-400 truncate">{m?.user?.email}</p>
                   </div>
                   <Badge variant="outline" className="text-xs">
                     {ROLE_LABELS[m.role] ?? m.role}
@@ -336,7 +336,7 @@ function OfficeAdminView({ officeId, officeName, members, loading }: { officeId:
             ) : (
               <div className="divide-y divide-slate-100">
                 {members.map(m => {
-                  const fullName = [m.user.first_name, m.user.last_name].filter(Boolean).join(' ') || m.user.email
+                  const fullName = [m?.user?.first_name, m?.user?.last_name].filter(Boolean).join(' ') || m?.user?.email
                   return (
                     <div key={m.id} className="flex items-center gap-3 py-2.5 group">
                       <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
@@ -344,7 +344,7 @@ function OfficeAdminView({ officeId, officeName, members, loading }: { officeId:
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-800 truncate">{fullName}</p>
-                        <p className="text-xs text-slate-400 truncate">{m.user.email}</p>
+                        <p className="text-xs text-slate-400 truncate">{m?.user?.email}</p>
                       </div>
                       <Badge variant="outline" className="text-xs">{ROLE_LABELS[m.role] ?? m.role}</Badge>
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

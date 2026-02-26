@@ -21,7 +21,7 @@ from .views import (
     # Calendar
     CalendarEntryViewSet, CalendarTemplateViewSet,
     # Tasks
-    TaskViewSet,
+    TaskViewSet, UserSearchView,
     # Notifications
     NotificationListView, NotificationMarkReadView,
     # Search & Dashboard
@@ -91,6 +91,7 @@ urlpatterns = [
     # ── Search & Dashboard ────────────────────────────────────────────
     path("search/",              GlobalSearchView.as_view(),    name="api-search"),
     path("dashboard/",           DashboardView.as_view(),       name="api-dashboard"),
+    path("auth/users/search/", UserSearchView.as_view(), name="api-user-search"),
 
     # ── Activity (Atividade / Auditoria) ─────────────────────────────
     path("activity/",            ActivityListView.as_view(),    name="activity-list"),
@@ -107,4 +108,7 @@ urlpatterns = [
 
     # ── Router (todos os ViewSets) ────────────────────────────────────
     path("", include(router.urls)),
+
+    # publications
+    path("publications/", include("apps.publications.urls")),
 ]

@@ -51,13 +51,19 @@ class OrganizationSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "plan", "is_active"]
 
 
+#class UserMiniSerializer(serializers.ModelSerializer):
+#    class meta:
+#        model = User
+#        fields = ["id", "email", "first_name", "last_name"]
+
 class MembershipSerializer(serializers.ModelSerializer):
     organization = OrganizationSerializer(read_only=True)
     office = OfficeSerializer(read_only=True)
+    user = UserMinimalSerializer(read_only=True)
 
     class Meta:
         model = Membership
-        fields = ["id", "role", "is_active", "organization", "office"]
+        fields = ["id", "role", "is_active", "organization", "office", "user"]
 
 
 class MeSerializer(serializers.ModelSerializer):
@@ -569,6 +575,8 @@ class CalendarTemplateSerializer(serializers.ModelSerializer):
 class TaskSerializer(serializers.ModelSerializer):
     assigned_to_name = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
+    process_title = serializers.SerializerMethodField
+    assigness_data = serializers.SerializerMethodField
 
     class Meta:
         model = Task
@@ -576,14 +584,29 @@ class TaskSerializer(serializers.ModelSerializer):
             "id", "title", "description",
             "status", "priority",
             "assigned_to", "assigned_to_name",
+            "assigness_data",
+            "process", "process_title",
             "due_date",
             "created_by", "created_by_name",
             "created_at", "updated_at",
         ]
         read_only_fields = [
             "created_by", "created_by_name",
-            "assigned_to_name", "created_at", "updated_at",
+            "assigned_to_name", "assignees_data"
+            "process_title"
+            "created_at", "updated_at",
         ]
+
+    def get_assignees_data(self, obj):
+        if hasattr(obj, 'assignees'):
+            return [{"id": u.id, "name": f"{u.first_name} {u.last_name}".strip() or u.email}
+                    for u in obj.assignees.all()]
+        return []
+
+    def get_process_title(self, obj):
+        if hasattr(obj, 'process') and obj.process:
+            return obj.process.title
+        return None
 
     def get_assigned_to_name(self, obj):
         if obj.assigned_to:

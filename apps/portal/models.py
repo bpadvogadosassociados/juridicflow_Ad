@@ -228,6 +228,19 @@ class Task(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="todo")
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default="medium")
 
+    process = models.ForeignKey(
+        "portal.Process", 
+        on_delete=models.SET_NULL,
+        null=True, blank=True, 
+        related_name="tasks"
+    )
+
+    assignees = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, 
+        blank=True, 
+        related_name="assignes_tasks"
+    )
+
     # Atribuição
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL,
