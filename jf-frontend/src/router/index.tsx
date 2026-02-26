@@ -36,9 +36,9 @@ const CalendarPage = lazy(() => import('@/pages/calendar/CalendarPage').then(m =
 
 const ReportsDashboardPage = lazy(() => import('@/pages/reports/ReportsDashboardPage').then(m => ({ default: m.ReportsDashboardPage })))
 const SettingsPage = lazy(() => import('@/pages/settings/SettingsPage').then(m => ({ default: m.SettingsPage })))
+const TeamPage = lazy(() => import('@/pages/team/TeamPage').then(m => ({ default: m.TeamPage })))
 
 // Coming soon pages
-const ComingTeamPage = lazy(() => import('@/pages/coming/ComingTeamPage').then(m => ({ default: m.ComingTeamPage })))
 const ComingWhatsAppPage = lazy(() => import('@/pages/coming/ComingWhatsAppPage').then(m => ({ default: m.ComingWhatsAppPage })))
 const ComingAndamentosPage = lazy(() => import('@/pages/coming/ComingAndamentosPage').then(m => ({ default: m.ComingAndamentosPage })))
 
@@ -102,11 +102,11 @@ export const router = createBrowserRouter([
           // WhatsApp (coming soon)
           { path: 'app/whatsapp', element: <ComingWhatsAppPage /> },
 
-          // Relatórios
+          // Atividade (Relatórios)
           { path: 'app/relatorios', element: <ReportsDashboardPage /> },
 
-          // Equipe (coming soon)
-          { path: 'app/equipe', element: <ComingTeamPage /> },
+          // Equipe
+          { path: 'app/equipe', element: <TeamPage /> },
 
           // Configurações
           { path: 'app/configuracoes', element: <SettingsPage /> },

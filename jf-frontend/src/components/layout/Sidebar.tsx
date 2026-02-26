@@ -76,11 +76,11 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Agenda', href: '/app/agenda', icon: <CalendarDays size={18} /> },
   { label: 'Andamentos', href: '/app/andamentos', icon: <Activity size={18} /> },
   { label: 'WhatsApp', href: '/app/whatsapp', icon: <MessageSquare size={18} /> },
-  { label: 'Relatórios', href: '/app/relatorios', icon: <BarChart3 size={18} /> },
+  { label: 'Atividade', href: '/app/relatorios', icon: <Activity size={18} /> },
 ]
 
 const BOTTOM_NAV: NavItem[] = [
-  { label: 'Equipe', href: '/app/equipe', icon: <UserCog size={18} /> },
+  { label: 'Equipe', href: '/app/equipe', icon: <Users size={18} /> },
   { label: 'Configurações', href: '/app/configuracoes', icon: <Settings size={18} /> },
 ]
 

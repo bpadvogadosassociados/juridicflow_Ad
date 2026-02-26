@@ -7,7 +7,8 @@ import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin, { Draggable } from '@fullcalendar/interaction'
 import listPlugin from '@fullcalendar/list'
 import type { DateSelectArg, EventClickArg, EventDropArg, EventReceiveArg } from '@fullcalendar/core'
-import { Plus, X, Trash2, GripVertical } from 'lucide-react'
+import { Plus, X, Trash2, Settings } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,7 +20,7 @@ import { cn } from '@/lib/utils'
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#f97316', '#6366f1']
 
-// Event template from local storage (set via Settings > Eventos)
+// Event template — stored in localStorage via Settings > Eventos
 interface EventTemplate {
   id: string
   name: string
@@ -38,6 +39,7 @@ function loadTemplates(): EventTemplate[] {
 }
 
 export function CalendarPage() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const calRef = useRef<FullCalendar>(null)
   const draggableContainerRef = useRef<HTMLDivElement>(null)
@@ -53,16 +55,31 @@ export function CalendarPage() {
   const [pendingTemplate, setPendingTemplate] = useState<{ template: EventTemplate; dateStr: string } | null>(null)
   const [templateFormValues, setTemplateFormValues] = useState<Record<string, string>>({})
 
-  const [templates] = useState<EventTemplate[]>(loadTemplates)
+  // Load templates — re-sync from localStorage on focus (Settings might have changed)
+  const [templates, setTemplates] = useState<EventTemplate[]>(loadTemplates)
+  useEffect(() => {
+    const sync = () => setTemplates(loadTemplates())
+    window.addEventListener('focus', sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener('focus', sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
 
-  const { data: entries = [] } = useQuery({
+  const { data: rawEntries } = useQuery({
     queryKey: ['calendar-entries'],
     queryFn: () => calendarApi.list(),
     staleTime: 30_000,
   })
 
+  // Handle both paginated ({results: []}) and plain array responses
+  const entries: CalendarEntry[] = Array.isArray(rawEntries)
+    ? rawEntries
+    : (rawEntries as any)?.results ?? []
+
   const createMutation = useMutation({
-    mutationFn: () => calendarApi.create(form),
+    mutationFn: (data: CreateEntryData) => calendarApi.create(data),
     onSuccess: () => { toast.success('Evento criado.'); queryClient.invalidateQueries({ queryKey: ['calendar-entries'] }); closeModal() },
     onError: (e: any) => toast.error(e?.response?.data?.detail ?? 'Erro ao criar evento.'),
   })
@@ -92,44 +109,71 @@ export function CalendarPage() {
 
   // Init FullCalendar Draggable for external templates
   useEffect(() => {
-    if (!draggableContainerRef.current || templates.length === 0) return
-    if (draggableInstance.current) { draggableInstance.current.destroy() }
+    if (!draggableContainerRef.current) return
+    if (draggableInstance.current) {
+      draggableInstance.current.destroy()
+      draggableInstance.current = null
+    }
+    if (templates.length === 0) return
+
     draggableInstance.current = new Draggable(draggableContainerRef.current, {
       itemSelector: '.fc-draggable-event',
       eventData: (el) => ({
-        title: el.getAttribute('data-title') ?? '',
+        title: el.getAttribute('data-title') ?? 'Novo Evento',
         color: el.getAttribute('data-color') ?? '#3b82f6',
         duration: { hours: 1 },
-        create: false, // we handle creation manually in eventReceive
       }),
     })
-    return () => { draggableInstance.current?.destroy() }
+    return () => {
+      if (draggableInstance.current) {
+        draggableInstance.current.destroy()
+        draggableInstance.current = null
+      }
+    }
   }, [templates])
 
   const handleEventReceive = useCallback((arg: EventReceiveArg) => {
+    // Revert the calendar preview — we handle creation manually
     arg.revert()
+
     const templateId = arg.draggedEl.getAttribute('data-template-id')
     const template = templates.find(t => t.id === templateId)
-    if (!template) return
+    if (!template) {
+      // No required fields — create directly
+      const dateStr = arg.event.startStr
+      createMutation.mutate({
+        title: arg.event.title,
+        start: dateStr,
+        all_day: true,
+        color: arg.event.backgroundColor || COLORS[0],
+      })
+      return
+    }
+
     const dateStr = arg.event.startStr
     setPendingTemplate({ template, dateStr })
     setTemplateFormValues({})
     setTemplateModalOpen(true)
-  }, [templates])
+  }, [templates, createMutation])
 
   const handleTemplateSubmit = async () => {
     if (!pendingTemplate) return
     const { template, dateStr } = pendingTemplate
-    const desc = Object.entries(templateFormValues)
-      .map(([k, v]) => `${k}: ${v}`).join(' | ')
-    await calendarApi.create({
+
+    // Build description from filled fields
+    const extraFields = Object.entries(templateFormValues)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(' | ')
+
+    await createMutation.mutateAsync({
       title: template.name,
       start: dateStr,
       all_day: true,
       color: template.color,
+      // description: extraFields — add if your model supports it
     })
-    queryClient.invalidateQueries({ queryKey: ['calendar-entries'] })
-    toast.success('Evento criado.')
+
     setTemplateModalOpen(false)
     setPendingTemplate(null)
   }
@@ -141,197 +185,213 @@ export function CalendarPage() {
   }, [])
 
   const handleEventClick = useCallback((arg: EventClickArg) => {
-    const entry = (entries as CalendarEntry[]).find(e => String(e.id) === arg.event.id)
+    const entry = entries.find(e => String(e.id) === arg.event.id)
     if (!entry) return
     setSelectedEntry(entry)
-    setForm({ title: entry.title, start: entry.start, end: entry.end ?? entry.start, all_day: entry.all_day, color: entry.color })
+    setForm({
+      title: entry.title,
+      start: entry.start,
+      end: entry.end ?? entry.start,
+      all_day: entry.all_day,
+      color: entry.color,
+    })
     setModalOpen(true)
   }, [entries])
 
   const handleEventDrop = useCallback((arg: EventDropArg) => {
-    moveMutation.mutate({ id: Number(arg.event.id), start: arg.event.startStr, end: arg.event.endStr })
-  }, [moveMutation])
+    const entry = entries.find(e => String(e.id) === arg.event.id)
+    if (!entry) { arg.revert(); return }
+    moveMutation.mutate({
+      id: entry.id,
+      start: arg.event.startStr,
+      end: arg.event.endStr || undefined,
+    })
+  }, [entries, moveMutation])
 
-  const fcEvents = (entries as CalendarEntry[]).map(e => ({
-    id: String(e.id), title: e.title, start: e.start, end: e.end ?? undefined,
-    allDay: e.all_day, backgroundColor: e.color, borderColor: e.color, textColor: '#fff',
+  const fcEvents = entries.map(e => ({
+    id: String(e.id),
+    title: e.title,
+    start: e.start,
+    end: e.end || undefined,
+    allDay: e.all_day,
+    backgroundColor: e.color,
+    borderColor: e.color,
   }))
 
-  const isPending = createMutation.isPending || updateMutation.isPending
-  const isEdit = !!selectedEntry
-
   return (
-    <div className="page-enter">
+    <div className="page-enter flex flex-col" style={{ minHeight: 'calc(100vh - 120px)' }}>
       <PageHeader
         title="Agenda"
-        subtitle="Eventos e compromissos do escritório"
-        breadcrumbs={[{ label: 'JuridicFlow' }, { label: 'Agenda' }]}
+        subtitle="Calendário de eventos do escritório"
+        breadcrumbs={[{ label: 'Agenda' }]}
         actions={
-          <Button onClick={() => {
-            const now = new Date()
-            setForm({ title: '', start: now.toISOString().slice(0, 16), end: new Date(now.getTime() + 3600000).toISOString().slice(0, 16), all_day: false, color: COLORS[0] })
-            setSelectedEntry(null); setModalOpen(true)
-          }} className="bg-blue-600 hover:bg-blue-700 gap-2 h-9">
-            <Plus size={15} /> Novo Evento
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline" size="sm"
+              onClick={() => navigate('/app/configuracoes?tab=events')}
+              className="gap-2 h-9"
+            >
+              <Settings size={14} /> Modelos
+            </Button>
+            <Button size="sm" className="gap-2 h-9"
+              onClick={() => { setSelectedEntry(null); setForm({ title: '', start: '', end: '', all_day: false, color: COLORS[0] }); setModalOpen(true) }}
+            >
+              <Plus size={14} /> Novo Evento
+            </Button>
+          </div>
         }
       />
 
-      <div className="flex gap-4">
-        {/* Event templates panel */}
-        {templates.length > 0 && (
-          <div ref={draggableContainerRef} className="w-48 flex-shrink-0">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Arraste para agendar</p>
-            <div className="space-y-2">
-              {templates.map(t => (
-                <div
-                  key={t.id}
-                  className="fc-draggable-event flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 bg-white cursor-grab hover:shadow-sm hover:border-slate-300 transition-all text-xs"
-                  data-title={t.name}
-                  data-color={t.color}
-                  data-template-id={t.id}
-                >
-                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: t.color }} />
-                  <span className="font-medium text-slate-700 truncate">{t.name}</span>
-                  <GripVertical size={12} className="text-slate-300 ml-auto flex-shrink-0" />
-                </div>
-              ))}
-            </div>
-            <p className="text-[10px] text-slate-400 mt-3 leading-tight">Configure em Configurações → Eventos</p>
-          </div>
-        )}
-
+      <div className="flex gap-4 flex-1">
         {/* Calendar */}
-        <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden fc-wrapper">
-          <style>{`
-            .fc-wrapper .fc { font-family: inherit; }
-            .fc-wrapper .fc-toolbar-title { font-size: 1rem; font-weight: 600; color: #1e293b; }
-            .fc-wrapper .fc-button { background: white; border: 1px solid #e2e8f0; color: #475569; font-size: 0.75rem; padding: 4px 10px; border-radius: 8px; transition: all 0.15s; }
-            .fc-wrapper .fc-button:hover { background: #f8fafc; border-color: #cbd5e1; }
-            .fc-wrapper .fc-button-primary:not(.fc-button-active):not(:disabled) { background: white; }
-            .fc-wrapper .fc-button-active, .fc-wrapper .fc-button-primary.fc-button-active { background: #2563eb !important; border-color: #2563eb !important; color: white !important; }
-            .fc-wrapper .fc-event { border-radius: 6px; padding: 1px 4px; font-size: 0.72rem; cursor: pointer; }
-            .fc-wrapper .fc-daygrid-day:hover { background: #f8fafc; }
-            .fc-wrapper .fc-daygrid-day.fc-day-today { background: #eff6ff; }
-            .fc-wrapper .fc-col-header-cell { font-size: 0.72rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 0; background: #f8fafc; }
-            .fc-wrapper .fc-toolbar { padding: 12px 16px; border-bottom: 1px solid #f1f5f9; }
-            .fc-wrapper .fc-list-event:hover td { background: #f8fafc; }
-            .fc-wrapper .fc-list-day-cushion { background: #f8fafc; font-size: 0.75rem; }
-          `}</style>
+        <div className="flex-1 min-w-0 bg-white rounded-xl border border-slate-200 p-4">
           <FullCalendar
             ref={calRef}
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin]}
             initialView="dayGridMonth"
-            locale="pt-br"
-            height={650}
-            events={fcEvents}
-            editable={true}
-            selectable={true}
-            selectMirror={true}
-            dayMaxEvents={3}
-            droppable={templates.length > 0}
-            select={handleDateSelect}
-            eventClick={handleEventClick}
-            eventDrop={handleEventDrop}
-            eventReceive={handleEventReceive}
             headerToolbar={{
               left: 'prev,next today',
               center: 'title',
               right: 'dayGridMonth,timeGridWeek,timeGridDay,listWeek',
             }}
+            locale="pt-br"
+            height={640}
+            selectable
+            editable
+            droppable
+            events={fcEvents}
+            select={handleDateSelect}
+            eventClick={handleEventClick}
+            eventDrop={handleEventDrop}
+            eventReceive={handleEventReceive}
             buttonText={{ today: 'Hoje', month: 'Mês', week: 'Semana', day: 'Dia', list: 'Lista' }}
-            noEventsText="Nenhum evento neste período"
           />
         </div>
+
+        {/* Templates panel */}
+        {templates.length > 0 && (
+          <div ref={draggableContainerRef} className="w-48 flex-shrink-0">
+            <div className="bg-white rounded-xl border border-slate-200 p-3">
+              <p className="text-xs font-semibold text-slate-600 mb-3 uppercase tracking-wide">Modelos</p>
+              <div className="flex flex-col gap-2">
+                {templates.map((t) => (
+                  <div
+                    key={t.id}
+                    data-template-id={t.id}
+                    data-title={t.name}
+                    data-color={t.color}
+                    className="fc-draggable-event flex items-center gap-2 p-2.5 rounded-lg border border-slate-200 bg-white cursor-grab hover:shadow-sm hover:border-slate-300 transition-all text-xs select-none"
+                  >
+                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: t.color }} />
+                    <span className="font-medium text-slate-700 truncate">{t.name}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-3 text-center">Arraste para o calendário</p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Event create/edit modal */}
-      <Dialog open={modalOpen} onOpenChange={v => { if (!v) closeModal() }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle className="text-base">{isEdit ? 'Editar Evento' : 'Novo Evento'}</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-1">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Título *</Label>
-              <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Ex: Audiência — Vara Cível" className="text-sm" autoFocus />
-            </div>
-            <div className="flex items-center gap-2">
-              <input type="checkbox" id="all_day" checked={form.all_day} onChange={e => setForm(f => ({ ...f, all_day: e.target.checked }))} className="w-3.5 h-3.5 accent-blue-600" />
-              <label htmlFor="all_day" className="text-xs text-slate-600">Dia inteiro</label>
+      {/* Create/Edit event modal */}
+      <Dialog open={modalOpen} onOpenChange={(o) => !o && closeModal()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{selectedEntry ? 'Editar Evento' : 'Novo Evento'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Título</Label>
+              <Input
+                value={form.title}
+                onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+                placeholder="Nome do evento"
+                className="mt-1"
+                autoFocus
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-slate-600">Início</Label>
-                <Input type={form.all_day ? 'date' : 'datetime-local'} value={form.all_day ? form.start?.slice(0, 10) : form.start?.slice(0, 16)} onChange={e => setForm(f => ({ ...f, start: e.target.value }))} className="text-xs" />
+              <div>
+                <Label>Início</Label>
+                <Input type="datetime-local" className="mt-1"
+                  value={form.start ? form.start.slice(0, 16) : ''}
+                  onChange={e => setForm(p => ({ ...p, start: e.target.value }))}
+                />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-slate-600">Fim</Label>
-                <Input type={form.all_day ? 'date' : 'datetime-local'} value={form.all_day ? (form.end ?? '').slice(0, 10) : (form.end ?? '').slice(0, 16)} onChange={e => setForm(f => ({ ...f, end: e.target.value }))} className="text-xs" />
+              <div>
+                <Label>Fim</Label>
+                <Input type="datetime-local" className="mt-1"
+                  value={form.end ? form.end.slice(0, 16) : ''}
+                  onChange={e => setForm(p => ({ ...p, end: e.target.value }))}
+                />
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Cor</Label>
+            <div>
+              <Label className="mb-2 block">Cor</Label>
               <div className="flex gap-2 flex-wrap">
-                {COLORS.map(color => (
-                  <button key={color} onClick={() => setForm(f => ({ ...f, color }))}
-                    className={cn('w-6 h-6 rounded-full transition-transform', form.color === color ? 'ring-2 ring-offset-2 ring-blue-500 scale-110' : 'hover:scale-105')}
-                    style={{ backgroundColor: color }} />
+                {COLORS.map(c => (
+                  <button key={c} type="button"
+                    className={cn('w-7 h-7 rounded-full transition-all border-2', form.color === c ? 'border-slate-900 scale-110' : 'border-transparent hover:scale-105')}
+                    style={{ backgroundColor: c }}
+                    onClick={() => setForm(p => ({ ...p, color: c }))}
+                  />
                 ))}
               </div>
             </div>
           </div>
           <DialogFooter className="gap-2">
-            {isEdit && (
-              <Button variant="outline" size="sm" className="text-red-600 border-red-200 hover:bg-red-50 mr-auto"
-                onClick={() => { setDeleteTarget(selectedEntry); setModalOpen(false) }}>
-                <Trash2 size={13} className="mr-1" /> Excluir
+            {selectedEntry && (
+              <Button variant="destructive" size="sm" onClick={() => { closeModal(); setDeleteTarget(selectedEntry) }}>
+                <Trash2 size={14} />
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={closeModal} disabled={isPending}>Cancelar</Button>
-            <Button size="sm" className="bg-blue-600 hover:bg-blue-700" disabled={!form.title || !form.start || isPending}
-              onClick={() => isEdit
+            <Button variant="outline" onClick={closeModal}>Cancelar</Button>
+            <Button
+              onClick={() => selectedEntry
                 ? updateMutation.mutate({ title: form.title, start: form.start, end: form.end, all_day: form.all_day, color: form.color })
-                : createMutation.mutate()
-              }>
-              {isPending ? 'Salvando…' : isEdit ? 'Atualizar' : 'Criar Evento'}
+                : createMutation.mutate(form)
+              }
+              disabled={!form.title || !form.start}
+            >
+              {selectedEntry ? 'Salvar' : 'Criar'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Template drop modal */}
-      <Dialog open={templateModalOpen} onOpenChange={v => { if (!v) { setTemplateModalOpen(false); setPendingTemplate(null) } }}>
-        <DialogContent className="max-w-sm">
+      {/* Template fill-in modal */}
+      <Dialog open={templateModalOpen} onOpenChange={o => !o && (setTemplateModalOpen(false), setPendingTemplate(null))}>
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-base flex items-center gap-2">
-              {pendingTemplate && (
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: pendingTemplate.template.color }} />
-              )}
-              {pendingTemplate?.template.name}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-1">
+            <DialogTitle>{pendingTemplate?.template.name}</DialogTitle>
             {pendingTemplate?.template.description && (
-              <p className="text-xs text-slate-500">{pendingTemplate.template.description}</p>
+              <p className="text-sm text-slate-500 mt-1">{pendingTemplate.template.description}</p>
             )}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Data</Label>
-              <p className="text-sm text-slate-700">{pendingTemplate?.dateStr.slice(0, 10)}</p>
+          </DialogHeader>
+          {pendingTemplate && pendingTemplate.template.requiredFields.length > 0 ? (
+            <div className="space-y-3 py-2">
+              <p className="text-xs text-slate-500">Preencha os campos para criar o evento em <strong>{pendingTemplate.dateStr.slice(0, 10)}</strong>:</p>
+              {pendingTemplate.template.requiredFields.map(f => (
+                <div key={f.id}>
+                  <Label>{f.label}</Label>
+                  <Input
+                    className="mt-1"
+                    value={templateFormValues[f.label] ?? ''}
+                    onChange={e => setTemplateFormValues(p => ({ ...p, [f.label]: e.target.value }))}
+                    placeholder={f.label}
+                  />
+                </div>
+              ))}
             </div>
-            {pendingTemplate?.template.requiredFields.map(field => (
-              <div key={field.id} className="space-y-1.5">
-                <Label className="text-xs font-medium text-slate-600">{field.label} *</Label>
-                <Input
-                  value={templateFormValues[field.id] ?? ''}
-                  onChange={e => setTemplateFormValues(v => ({ ...v, [field.id]: e.target.value }))}
-                  className="text-sm"
-                />
-              </div>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => { setTemplateModalOpen(false); setPendingTemplate(null) }}>Cancelar</Button>
-            <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={handleTemplateSubmit}>
-              Confirmar
+          ) : (
+            <p className="text-sm text-slate-600 py-2">
+              Criar evento <strong>{pendingTemplate?.template.name}</strong> em <strong>{pendingTemplate?.dateStr.slice(0, 10)}</strong>?
+            </p>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setTemplateModalOpen(false); setPendingTemplate(null) }}>Cancelar</Button>
+            <Button onClick={handleTemplateSubmit} disabled={createMutation.isPending}>
+              {createMutation.isPending ? 'Criando...' : 'Criar Evento'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -339,13 +399,10 @@ export function CalendarPage() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={v => { if (!v) setDeleteTarget(null) }}
-        title="Excluir evento?"
-        description={`"${deleteTarget?.title}" será excluído.`}
-        confirmLabel="Excluir"
-        variant="destructive"
+        title="Excluir Evento"
+        description={`Excluir "${deleteTarget?.title}"? Esta ação não pode ser desfeita.`}
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-        loading={deleteMutation.isPending}
+        onCancel={() => setDeleteTarget(null)}
       />
     </div>
   )

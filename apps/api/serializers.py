@@ -559,8 +559,7 @@ class CalendarEntrySerializer(serializers.ModelSerializer):
 class CalendarTemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CalendarEventTemplate
-        fields = ["id", "title", "color", "is_active", "created_at"]
-        read_only_fields = ["created_at"]
+        fields = ["id", "title", "description", "color", "required_fields", "is_active"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

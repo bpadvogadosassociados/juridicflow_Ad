@@ -72,6 +72,8 @@ class CalendarEntry(models.Model):
     organization = models.ForeignKey("organizations.Organization", on_delete=models.CASCADE, related_name="calendar_entries")
     office = models.ForeignKey("offices.Office", on_delete=models.CASCADE, related_name="calendar_entries")
     title = models.CharField(max_length=120)
+    description = models.CharField(max_length=120, blank=True, verbose_name="Descrição curta")
+    required_fields = models.JSONField(default=list, blank=True, verbose_name="Campos obrigatórios")
     start = models.DateTimeField()
     end = models.DateTimeField(null=True, blank=True)
     all_day = models.BooleanField(default=False)

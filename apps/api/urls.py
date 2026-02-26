@@ -28,6 +28,19 @@ from .views import (
     GlobalSearchView, DashboardView,
 )
 
+# ── Activity (Atividade / Auditoria) ─────────────────────────────────────────
+from apps.activity.views import (
+    ActivityListView, ActivityDetailView,
+    ActivitySummaryView, ActivityExportView,
+)
+
+# ── Team Management ───────────────────────────────────────────────────────────
+from apps.team.views import (
+    TeamMembersView, TeamMemberDetailView,
+    LocalRoleListView, LocalRoleDetailView,
+    PermissionGroupsView,
+)
+
 router = DefaultRouter()
 
 # Core resources
@@ -78,6 +91,19 @@ urlpatterns = [
     # ── Search & Dashboard ────────────────────────────────────────────
     path("search/",              GlobalSearchView.as_view(),    name="api-search"),
     path("dashboard/",           DashboardView.as_view(),       name="api-dashboard"),
+
+    # ── Activity (Atividade / Auditoria) ─────────────────────────────
+    path("activity/",            ActivityListView.as_view(),    name="activity-list"),
+    path("activity/summary/",    ActivitySummaryView.as_view(), name="activity-summary"),
+    path("activity/export/",     ActivityExportView.as_view(),  name="activity-export"),
+    path("activity/<int:event_id>/", ActivityDetailView.as_view(), name="activity-detail"),
+
+    # ── Team Management ───────────────────────────────────────────────
+    path("team/members/",              TeamMembersView.as_view(),         name="team-members"),
+    path("team/members/<int:pk>/",     TeamMemberDetailView.as_view(),    name="team-member-detail"),
+    path("team/local-roles/",          LocalRoleListView.as_view(),       name="team-local-roles"),
+    path("team/local-roles/<int:pk>/", LocalRoleDetailView.as_view(),     name="team-local-role-detail"),
+    path("team/groups/",               PermissionGroupsView.as_view(),    name="team-groups"),
 
     # ── Router (todos os ViewSets) ────────────────────────────────────
     path("", include(router.urls)),

@@ -38,6 +38,8 @@ INSTALLED_APPS = [
     "apps.portal",
     "apps.publications",
     "apps.core",
+    "apps.activity",
+    "apps.team",
 ]
 
 MIDDLEWARE = [
