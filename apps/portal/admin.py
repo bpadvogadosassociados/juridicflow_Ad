@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import (
-    OfficePreference, ActivityLog, SupportTicket,
+    OfficePreference, SupportTicket,
     CalendarEventTemplate, CalendarEntry,
     KanbanBoard, KanbanColumn, KanbanCard,
     ChatThread, ChatMember, ChatMessage,

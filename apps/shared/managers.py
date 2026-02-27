@@ -9,4 +9,7 @@ class OrganizationScopedManager(models.Manager):
         qs = self.get_queryset().filter(organization=org)
         if office:
             qs = qs.filter(office=office)
+        # Auto-filter soft-deleted records if model supports it
+        if hasattr(self.model, "is_deleted"):
+            qs = qs.filter(is_deleted=False)
         return qs

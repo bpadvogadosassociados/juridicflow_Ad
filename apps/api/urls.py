@@ -4,7 +4,7 @@ from rest_framework_simplejwt.views import TokenRefreshView, TokenVerifyView
 
 from .views import (
     # Auth
-    LoginView, MeView, MembershipsView, OfficesView, PermissionsView,
+    LoginView, MeView, PasswordChangeView, MembershipsView, OfficesView, PermissionsView,
     # Customers
     CustomerViewSet,
     # Processes
@@ -26,6 +26,8 @@ from .views import (
     NotificationListView, NotificationMarkReadView,
     # Search & Dashboard
     GlobalSearchView, DashboardView,
+    # Invitation
+    InvitationCreateView, InvitationRetrievePublicView, InvitationAcceptView
 )
 
 # ── Activity (Atividade / Auditoria) ─────────────────────────────────────────
@@ -74,6 +76,7 @@ urlpatterns = [
     path("auth/token/refresh/",  TokenRefreshView.as_view(),   name="token-refresh"),
     path("auth/token/verify/",   TokenVerifyView.as_view(),    name="token-verify"),
     path("auth/me/",             MeView.as_view(),              name="api-me"),
+    path("auth/password/",       PasswordChangeView.as_view(),  name="api-password-change"),
     path("auth/memberships/",    MembershipsView.as_view(),     name="api-memberships"),
     path("auth/permissions/",    PermissionsView.as_view(),     name="api-permissions"),
 
@@ -111,4 +114,9 @@ urlpatterns = [
 
     # publications
     path("publications/", include("apps.publications.urls")),
+
+    #Invitation
+    path("invitations/", InvitationCreateView.as_view(), name="invitation-create"),
+    path("invitations/<str:token>/", InvitationRetrievePublicView.as_view(), name="invitation-public"),
+    path("invitations/<str:token>/accept/", InvitationAcceptView.as_view(), name="invitation-accept"),
 ]

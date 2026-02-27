@@ -38,6 +38,8 @@ class ActivityEvent(models.Model):
         ("member_removed",     "Membro removido"),
         ("role_changed",       "Função alterada"),
         ("permission_changed", "Permissão alterada"),
+        
+        ("custom",             "Custom"),
     ]
 
     MODULE_CHOICES = [

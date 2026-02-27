@@ -284,12 +284,13 @@ class LocalRoleListView(APIView):
     permission_classes = [IsInTenant]
 
     def get(self, request):
+        from django.db.models import Q
         qs = LocalRole.objects.filter(
             organization=request.organization,
             is_active=True,
         ).filter(
-            # roles do office atual OU roles globais da org
-            office=request.office,
+            # roles do office atual OU roles globais da org (office=None)
+            Q(office=request.office) | Q(office__isnull=True),
         ).prefetch_related("groups").order_by("name")
         return Response(LocalRoleSerializer(qs, many=True).data)
 

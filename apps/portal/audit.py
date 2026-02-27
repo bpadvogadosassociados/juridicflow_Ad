@@ -1,26 +1,3 @@
-"""
-Audit Trail para operações sensíveis.
-
-Registra WHO did WHAT on WHICH object WHEN, com IP e user-agent.
-
-Uso direto:
-    from apps.portal.audit import log_audit
-
-    log_audit(
-        request=request,
-        action="delete",
-        model_name="Process",
-        object_id=process.id,
-        detail="Processo 000123 deletado",
-    )
-
-Uso automático via decorator:
-    from apps.portal.audit import audited
-
-    @audited(action="delete", model_name="Process")
-    def processo_delete(request, process_id):
-        ...
-"""
 import logging
 from functools import wraps
 
@@ -28,64 +5,22 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 
+from apps.activity.models import log_event
+
 logger = logging.getLogger("apps.portal.audit")
 
-
-class AuditEntry(models.Model):
-    """Registro imutável de operação sensível."""
-
-    ACTION_CHOICES = [
-        ("create", "Criação"),
-        ("update", "Atualização"),
-        ("delete", "Exclusão"),
-        ("login", "Login"),
-        ("logout", "Logout"),
-        ("export", "Exportação"),
-        ("import", "Importação"),
-        ("permission_change", "Alteração de Permissão"),
-        ("payment", "Pagamento"),
-        ("share", "Compartilhamento"),
-    ]
-
-    # Quem
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name="audit_entries",
-    )
-    user_email = models.CharField(max_length=254)  # Preserva mesmo se user deletado
-    user_role = models.CharField(max_length=30, blank=True, default="")
-
-    # Contexto
-    organization_id = models.PositiveIntegerField(null=True)
-    office_id = models.PositiveIntegerField(null=True)
-
-    # O que
-    action = models.CharField(max_length=30, choices=ACTION_CHOICES)
-    model_name = models.CharField(max_length=100, blank=True, default="")
-    object_id = models.CharField(max_length=100, blank=True, default="")
-    detail = models.TextField(blank=True, default="")
-
-    # Quando + de onde
-    timestamp = models.DateTimeField(default=timezone.now, db_index=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
-    user_agent = models.TextField(blank=True, default="")
-
-    class Meta:
-        app_label = "portal"
-        ordering = ["-timestamp"]
-        indexes = [
-            models.Index(fields=["organization_id", "-timestamp"]),
-            models.Index(fields=["user", "-timestamp"]),
-            models.Index(fields=["action", "-timestamp"]),
-            models.Index(fields=["model_name", "object_id"]),
-        ]
-        verbose_name = "Registro de Auditoria"
-        verbose_name_plural = "Registros de Auditoria"
-
-    def __str__(self):
-        return f"[{self.timestamp:%Y-%m-%d %H:%M}] {self.user_email} → {self.action} {self.model_name}"
+_ACTION_MAP = {
+    "create": "created",
+    "update": "updated",
+    "delete": "deleted",
+    "login": "login",
+    "logout": "logout",
+    "export": "exported",
+    "import": "custom",
+    "permission_change": "permission_changed",
+    "payment": "custom",
+    "share": "custom",
+}
 
 
 def _get_client_ip(request) -> str:
@@ -104,26 +39,39 @@ def log_audit(
     detail: str = "",
 ):
     """
-    Grava entrada de auditoria.
-    Nunca levanta exceção — falhas são logadas silenciosamente.
+    Auditoria definitiva: grava em ActivityEvent.
+    Nunca levanta exceção.
     """
     try:
         membership = getattr(request, "membership", None)
-        AuditEntry.objects.create(
-            user=request.user if request.user.is_authenticated else None,
-            user_email=getattr(request.user, "email", "anonymous"),
-            user_role=membership.role if membership else "",
-            organization_id=getattr(request, "organization", None) and request.organization.id,
-            office_id=getattr(request, "office", None) and request.office.id,
-            action=action,
-            model_name=model_name,
-            object_id=str(object_id),
-            detail=detail[:2000],  # Trunca para segurança
-            ip_address=_get_client_ip(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", "")[:500],
+        mapped_action = _ACTION_MAP.get(action, "custom")
+
+        actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
+        actor_label = (actor.get_full_name() or actor.email) if actor else "anonymous"
+
+        summary = detail or f"{actor_label} executou {action} em {model_name} {object_id}".strip()
+        summary = summary[:500]
+
+        log_event(
+            module="system",
+            action=mapped_action,
+            summary=summary,
+            actor=actor,
+            organization=getattr(request, "organization", None),
+            office=getattr(request, "office", None),
+            entity_type=model_name or "",
+            entity_id=str(object_id or ""),
+            entity_label=str(object_id or ""),
+            request=request,
+            changes={
+                "legacy_action": action,
+                "legacy_source": "portal.AuditEntry",
+                "user_role": getattr(membership, "role", "") if membership else "",
+                "detail": (detail or "")[:2000],
+            },
         )
     except Exception as exc:
-        logger.error("Falha ao gravar audit entry: %s", exc)
+        logger.error("Falha ao gravar audit event: %s", exc)
 
 
 def audited(action: str, model_name: str = ""):

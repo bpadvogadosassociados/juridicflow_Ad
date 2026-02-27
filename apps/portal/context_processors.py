@@ -1,5 +1,6 @@
 
-from apps.portal.models import OfficePreference, ActivityLog
+from apps.portal.models import OfficePreference
+from apps.activity.models import ActivityEvent
 from apps.shared.permissions import get_context_perms
 
 
@@ -33,7 +34,10 @@ def portal_context(request):
             ctx['portal_body_class'] = 'hold-transition sidebar-mini layout-fixed layout-navbar-fixed layout-footer-fixed'
 
     try:
-        ctx['navbar_activity'] = ActivityLog.objects.filter(office=office)[:5] if office else []
+        ctx['navbar_activity'] = (
+            ActivityEvent.objects.filter(office=office).select_related("actor")[:5]
+            if office else []
+        )
     except Exception:
         ctx['navbar_activity'] = []
     return ctx

@@ -16,6 +16,8 @@ from apps.portal.models import (
     Notification, Task,
 )
 
+from apps.memberships.models import Invitation
+
 UserModel = get_user_model()
 
 
@@ -190,7 +192,7 @@ class ProcessNoteSerializer(serializers.ModelSerializer):
 class ProcessSerializer(serializers.ModelSerializer):
     parties = ProcessPartySerializer(many=True, required=False)
     responsible_name = serializers.SerializerMethodField()
-    deadlines_count = serializers.SerializerMethodField()
+    deadlines_count = serializers.IntegerField(read_only=True)
     next_deadline = serializers.SerializerMethodField()
 
     class Meta:
@@ -224,20 +226,29 @@ class ProcessSerializer(serializers.ModelSerializer):
             "next_deadline", "created_at", "updated_at",
         ]
 
-    def validate_number(self, value):
-        from apps.processes.models import validate_cnj
-        validate_cnj(value)
-        return value
-
     def get_responsible_name(self, obj):
         if obj.responsible:
             return obj.responsible.get_full_name() or obj.responsible.email
         return None
 
-    def get_deadlines_count(self, obj):
-        from django.contrib.contenttypes.models import ContentType
-        ct = ContentType.objects.get_for_model(Process)
-        return Deadline.objects.filter(content_type=ct, object_id=obj.id).count()
+    def validate_number(self, value):
+        from apps.processes.models import validate_cnj
+        validate_cnj(value)
+        return value
+
+    def get_next_deadline(self, obj):
+        # ✅ Sem query: usa annotations do queryset
+        dl_id = getattr(obj, "next_deadline_id", None)
+        if not dl_id:
+            return None
+
+        due_date = getattr(obj, "next_deadline_due_date", None)
+        return {
+            "id": dl_id,
+            "title": getattr(obj, "next_deadline_title", None),
+            "due_date": due_date.isoformat() if due_date else None,
+            "priority": getattr(obj, "next_deadline_priority", None),
+        }
 
     def get_next_deadline(self, obj):
         from django.contrib.contenttypes.models import ContentType
@@ -321,6 +332,11 @@ class DeadlineSerializer(serializers.ModelSerializer):
 
     def get_status_info(self, obj):
         from django.utils import timezone
+        # Respect existing status first
+        if obj.status == "completed":
+            return {"label": "completed", "text": "Concluído", "class": "success"}
+        if obj.status == "cancelled":
+            return {"label": "cancelled", "text": "Cancelado", "class": "secondary"}
         today = timezone.now().date()
         if obj.due_date < today:
             return {"label": "overdue", "text": "Atrasado", "class": "danger"}
@@ -365,20 +381,37 @@ class DeadlineSerializer(serializers.ModelSerializer):
 
 class DocumentSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
+    uploaded_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Document
         fields = [
-            "id", "title", "description", "file", "file_url",
-            "uploaded_by", "created_at", "updated_at",
+            "id", "title", "description",
+            "category", "status",
+            "file", "file_url", "file_size", "file_extension",
+            "tags",
+            "process", "customer",
+            "uploaded_by", "uploaded_by_name",
+            "is_confidential", "is_template",
+            "document_date", "expiry_date",
+            "created_at", "updated_at",
         ]
-        read_only_fields = ["uploaded_by", "file_url", "created_at", "updated_at"]
+        read_only_fields = [
+            "uploaded_by", "uploaded_by_name", "file_url",
+            "file_size", "file_extension",
+            "created_at", "updated_at",
+        ]
 
     def get_file_url(self, obj):
         request = self.context.get("request")
-        if not request:
+        if not request or not obj.file:
             return None
-        return request.build_absolute_uri(obj.file.url) if obj.file else None
+        return request.build_absolute_uri(obj.file.url)
+
+    def get_uploaded_by_name(self, obj):
+        if obj.uploaded_by:
+            return obj.uploaded_by.get_full_name() or obj.uploaded_by.email
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -565,7 +598,7 @@ class CalendarEntrySerializer(serializers.ModelSerializer):
 class CalendarTemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CalendarEventTemplate
-        fields = ["id", "title", "description", "color", "required_fields", "is_active"]
+        fields = ["id", "title", "description", "color", "is_active"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -575,8 +608,8 @@ class CalendarTemplateSerializer(serializers.ModelSerializer):
 class TaskSerializer(serializers.ModelSerializer):
     assigned_to_name = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
-    process_title = serializers.SerializerMethodField
-    assigness_data = serializers.SerializerMethodField
+    process_title = serializers.SerializerMethodField()
+    assignees_data = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
@@ -584,7 +617,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "id", "title", "description",
             "status", "priority",
             "assigned_to", "assigned_to_name",
-            "assigness_data",
+            "assignees_data",
             "process", "process_title",
             "due_date",
             "created_by", "created_by_name",
@@ -592,8 +625,8 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "created_by", "created_by_name",
-            "assigned_to_name", "assignees_data"
-            "process_title"
+            "assigned_to_name", "assignees_data",
+            "process_title",
             "created_at", "updated_at",
         ]
 
@@ -605,7 +638,7 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def get_process_title(self, obj):
         if hasattr(obj, 'process') and obj.process:
-            return obj.process.title
+            return obj.process.number
         return None
 
     def get_assigned_to_name(self, obj):
@@ -654,3 +687,26 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     def get_when(self, obj):
         return _time_ago(obj.created_at)
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Invites
+# ─────────────────────────────────────────────────────────────────────────────
+class InvitationCreateSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    role = serializers.CharField(max_length=50)
+    office_id = serializers.IntegerField(required=False, allow_null=True)
+    ttl_hours = serializers.IntegerField(required=False, min_value=1, max_value=720)  # até 30 dias
+
+class InvitationPublicSerializer(serializers.ModelSerializer):
+    organization_name = serializers.CharField(source="organization.name", read_only=True)
+    office_name = serializers.CharField(source="office.name", read_only=True)
+
+    class Meta:
+        model = Invitation
+        fields = ["email", "role", "organization_name", "office_name", "expires_at", "status"]
+
+class InvitationAcceptSerializer(serializers.Serializer):
+    password = serializers.CharField(min_length=8, max_length=128)
+    full_name = serializers.CharField(required=False, allow_blank=True, max_length=150)

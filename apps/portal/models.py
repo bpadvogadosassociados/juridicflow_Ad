@@ -17,17 +17,6 @@ class OfficePreference(models.Model):
     def __str__(self):
         return f"Preferências: {self.office.name}"
 
-class ActivityLog(models.Model):
-    organization = models.ForeignKey("organizations.Organization", on_delete=models.CASCADE, related_name="activity_logs")
-    office = models.ForeignKey("offices.Office", on_delete=models.CASCADE, related_name="activity_logs")
-    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="activity_logs")
-    verb = models.CharField(max_length=64)  # ex: created_process
-    description = models.CharField(max_length=255)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-
 class SupportTicket(models.Model):
     STATUS_CHOICES = [
         ("open", "Aberto"),
@@ -60,6 +49,7 @@ class CalendarEventTemplate(models.Model):
     organization = models.ForeignKey("organizations.Organization", on_delete=models.CASCADE, related_name="calendar_templates")
     office = models.ForeignKey("offices.Office", on_delete=models.CASCADE, related_name="calendar_templates")
     title = models.CharField(max_length=120)
+    description = models.TextField("Descrição", blank=True, default="")
     color = models.CharField(max_length=24, default="#3c8dbc")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -228,17 +218,10 @@ class Task(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="todo")
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default="medium")
 
-    process = models.ForeignKey(
-        "portal.Process", 
-        on_delete=models.SET_NULL,
-        null=True, blank=True, 
-        related_name="tasks"
-    )
-
     assignees = models.ManyToManyField(
         settings.AUTH_USER_MODEL, 
         blank=True, 
-        related_name="assignes_tasks"
+        related_name="assignee_tasks"
     )
 
     # Atribuição

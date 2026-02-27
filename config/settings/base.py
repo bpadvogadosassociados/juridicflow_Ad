@@ -10,8 +10,16 @@ DATAJUD_API_KEY = os.getenv("DATAJUD_API_KEY", "")
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-secret-key")
 DEBUG = os.getenv("DJANGO_DEBUG", "0") == "1"
 
-#ALLOWED_HOSTS = [h.strip() for h in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if h.strip()]
-ALLOWED_HOSTS = ["*"]
+# Raise if using default secret key in non-debug mode
+if not DEBUG and SECRET_KEY == "dev-insecure-secret-key":
+    import warnings
+    warnings.warn(
+        "DJANGO_SECRET_KEY env var not set! Using insecure default. "
+        "Set a strong secret key for production.",
+        stacklevel=2,
+    )
+
+ALLOWED_HOSTS = [h.strip() for h in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 
 INSTALLED_APPS = [
     "jazzmin",
@@ -122,6 +130,15 @@ if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
 
 PORTAL_PAGINATION_SIZE = 25
+
+# ── File upload limits ────────────────────────────────────────────────────────
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024    # 20 MB
+
+# ── CSRF ──────────────────────────────────────────────────────────────────────
+_csrf_origins = os.getenv("CSRF_TRUSTED_ORIGINS", "")
+if _csrf_origins:
+    CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(",") if o.strip()]
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (

@@ -1,0 +1,1 @@
+Invitation.objects.filter(status="pending", expires_at__lte=timezone.now()).update(status="expired")

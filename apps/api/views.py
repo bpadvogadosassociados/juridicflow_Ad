@@ -11,13 +11,16 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
-from django.contrib.auth import authenticate
-from django.db.models import Q, Sum
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from django.contrib.auth import authenticate, get_user_model
+from django.contrib.contenttypes.models import ContentType
+from django.db.models import Q, Sum, OuterRef, Subquery, Count, Value, IntegerField
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.db import transaction
 
-from apps.shared.models import AuditLog
+
 from apps.memberships.models import Membership
 from apps.offices.models import Office
 from apps.customers.models import Customer, CustomerInteraction, CustomerRelationship
@@ -28,8 +31,10 @@ from apps.finance.models import FeeAgreement, Invoice, Payment, Expense, Proposa
 from apps.portal.models import (
     KanbanBoard, KanbanColumn, KanbanCard,
     CalendarEntry, CalendarEventTemplate,
-    Notification, Task, ActivityLog,
+    Notification, Task, 
 )
+from apps.activity.models import ActivityEvent
+from apps.memberships.models import Invitation
 
 from .serializers import (
     MeSerializer, MembershipSerializer, OfficeSerializer,
@@ -40,7 +45,8 @@ from .serializers import (
     ExpenseSerializer, ProposalSerializer,
     KanbanBoardSerializer, KanbanColumnSerializer, KanbanCardSerializer,
     CalendarEntrySerializer, CalendarTemplateSerializer,
-    TaskSerializer, NotificationSerializer,
+    TaskSerializer, NotificationSerializer, InvitationAcceptSerializer,
+    InvitationCreateSerializer, InvitationPublicSerializer
 )
 from .permissions import IsInTenant, HasMembershipViewPerms
 
@@ -58,18 +64,67 @@ def _ip(request):
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    # Simple in-memory rate limiting per IP
+    _attempts = {}  # ip -> (count, first_attempt_time)
+    MAX_ATTEMPTS = 10
+    WINDOW_SECONDS = 300  # 5 minutes
+
+    def _check_rate_limit(self, request):
+        import time
+        ip = _ip(request)
+        now = time.time()
+        attempts_info = self._attempts.get(ip)
+        if attempts_info:
+            count, first_time = attempts_info
+            if now - first_time > self.WINDOW_SECONDS:
+                self._attempts[ip] = (1, now)
+                return True
+            if count >= self.MAX_ATTEMPTS:
+                return False
+            self._attempts[ip] = (count + 1, first_time)
+        else:
+            self._attempts[ip] = (1, now)
+        return True
+
+    def _reset_rate_limit(self, request):
+        ip = _ip(request)
+        self._attempts.pop(ip, None)
 
     def post(self, request):
+        if not self._check_rate_limit(request):
+            return Response(
+                {"detail": "Muitas tentativas de login. Tente novamente em alguns minutos."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         email = request.data.get("email")
         password = request.data.get("password")
+        if not email or not password:
+            return Response(
+                {"detail": "Email e senha são obrigatórios."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         user = authenticate(request, username=email, password=password)
         if not user:
             return Response(
                 {"detail": "Credenciais inválidas."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+        self._reset_rate_limit(request)
         refresh = RefreshToken.for_user(user)
-        AuditLog.objects.create(user=user, action="login", ip_address=_ip(request))
+        from apps.activity.models import log_event
+        log_event(
+            module="auth",
+            action="login",
+            summary=f"{user.get_full_name() or user.email} fez login",
+            actor=user,
+            organization=None,
+            office=None,
+            entity_type="User",
+            entity_id=str(user.id),
+            entity_label=user.email,
+            request=request,
+            changes={"legacy_source": "shared.AuditLog"}
+        )
         return Response({"access": str(refresh.access_token), "refresh": str(refresh)})
 
 
@@ -78,6 +133,39 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(MeSerializer(request.user).data)
+
+
+class PasswordChangeView(APIView):
+    """Permite ao usuário logado alterar sua senha."""
+
+    def post(self, request):
+        current = request.data.get("current_password", "")
+        new_password = request.data.get("new_password", "")
+        confirm = request.data.get("confirm_password", "")
+
+        if not current or not new_password:
+            return Response(
+                {"detail": "Senha atual e nova senha são obrigatórios."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new_password != confirm:
+            return Response(
+                {"detail": "Nova senha e confirmação não coincidem."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if len(new_password) < 8:
+            return Response(
+                {"detail": "Nova senha deve ter no mínimo 8 caracteres."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not request.user.check_password(current):
+            return Response(
+                {"detail": "Senha atual incorreta."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        request.user.set_password(new_password)
+        request.user.save()
+        return Response({"detail": "Senha alterada com sucesso."})
 
 
 class MembershipsView(APIView):
@@ -155,6 +243,10 @@ class CustomerViewSet(ScopedModelViewSet):
         "partial_update": ("customers.change_customer",),
         "destroy":      ("customers.delete_customer",),
     }
+
+    def perform_destroy(self, instance):
+        """Soft delete instead of hard delete for customers."""
+        instance.soft_delete()
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -245,6 +337,39 @@ class ProcessViewSet(ScopedModelViewSet):
             qs = qs.filter(phase=phase)
         if area := self.request.query_params.get("area"):
             qs = qs.filter(area=area)
+        
+        ct_id = ContentType.objects.get_for_model(Process).id
+        today = timezone.now().date()
+
+        deadlines_base = Deadline.objects.filter(
+            content_type_id=ct_id,
+            object_id=OuterRef("pk"),
+        )
+
+        deadlines_count_sq = (
+            deadlines_base
+            .values("object_id")
+            .annotate(c=Count("*"))
+            .values("c")[:1]
+        )
+
+        next_deadline_base = (
+            deadlines_base
+            .filter(status="pending", due_date__gte=today)
+            .order_by("due_date")
+        )
+
+        qs = qs.annotate(
+            deadlines_count=Coalesce(
+                Subquery(deadlines_count_sq, output_field=IntegerField()),
+                Value(0),
+            ),
+            next_deadline_id=Subquery(next_deadline_base.values("id")[:1]),
+            next_deadline_title=Subquery(next_deadline_base.values("title")[:1]),
+            next_deadline_due_date=Subquery(next_deadline_base.values("due_date")[:1]),
+            next_deadline_priority=Subquery(next_deadline_base.values("priority")[:1]),
+    )
+        
         return qs.select_related("responsible").prefetch_related("parties")
 
     @action(detail=True, methods=["get", "post"], url_path="notes")
@@ -325,6 +450,25 @@ class DocumentViewSet(ScopedModelViewSet):
         "partial_update": ("documents.change_document",),
         "destroy":        ("documents.delete_document",),
     }
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = self.request.query_params.get("search")
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search) |
+                Q(description__icontains=search) |
+                Q(tags__icontains=search)
+            )
+        if category := self.request.query_params.get("category"):
+            qs = qs.filter(category=category)
+        if status_val := self.request.query_params.get("status"):
+            qs = qs.filter(status=status_val)
+        if process := self.request.query_params.get("process"):
+            qs = qs.filter(process_id=process)
+        if customer := self.request.query_params.get("customer"):
+            qs = qs.filter(customer_id=customer)
+        return qs.select_related("uploaded_by", "process", "customer")
 
     def perform_create(self, serializer):
         from rest_framework.exceptions import ValidationError
@@ -502,11 +646,11 @@ class KanbanColumnViewSet(viewsets.ModelViewSet):
     permission_classes = [IsInTenant, HasMembershipViewPerms]
     serializer_class = KanbanColumnSerializer
     required_perms_map = {
-        "list":           ("tasks.view_kanbancolumn",),
-        "create":         ("tasks.add_kanbancolumn",),
-        "update":         ("tasks.change_kanbancolumn",),
-        "partial_update": ("tasks.change_kanbancolumn",),
-        "destroy":        ("tasks.delete_kanbancolumn",),
+        "list":           ("portal.view_kanbancolumn",),
+        "create":         ("portal.add_kanbancolumn",),
+        "update":         ("portal.change_kanbancolumn",),
+        "partial_update": ("portal.change_kanbancolumn",),
+        "destroy":        ("portal.delete_kanbancolumn",),
     }
 
     def get_queryset(self):
@@ -533,12 +677,12 @@ class KanbanCardViewSet(viewsets.ModelViewSet):
     permission_classes = [IsInTenant, HasMembershipViewPerms]
     serializer_class = KanbanCardSerializer
     required_perms_map = {
-        "list":           ("tasks.view_kanbancard",),
-        "retrieve":       ("tasks.view_kanbancard",),
-        "create":         ("tasks.add_kanbancard",),
-        "update":         ("tasks.change_kanbancard",),
-        "partial_update": ("tasks.change_kanbancard",),
-        "destroy":        ("tasks.delete_kanbancard",),
+        "list":           ("portal.view_kanbancard",),
+        "retrieve":       ("portal.view_kanbancard",),
+        "create":         ("portal.add_kanbancard",),
+        "update":         ("portal.change_kanbancard",),
+        "partial_update": ("portal.change_kanbancard",),
+        "destroy":        ("portal.delete_kanbancard",),
     }
 
     def get_queryset(self):
@@ -640,6 +784,8 @@ class UserSearchView(APIView):
 
     def get(self, request):
         from django.db import models as dj_models
+        if not getattr(request, "office", None):
+            return Response({"results": []})
         q = request.query_params.get("q", "").strip()
         if len(q) < 2:
             return Response({"results": []})
@@ -725,6 +871,7 @@ class NotificationMarkReadView(APIView):
             Notification.objects.filter(
                 id=notif_id, user=request.user,
                 organization=request.organization,
+                office=request.office,
             ).update(is_read=True)
         else:
             # mark-all
@@ -758,6 +905,8 @@ class GlobalSearchView(APIView):
 
         office = request.office
         org = request.organization
+        if not office:
+            return Response({"detail": "X-Office-Id obrigatório."}, status=400)
         results = []
 
         processes = Process.objects.filter(
@@ -872,9 +1021,10 @@ class DashboardView(APIView):
         }
 
         # Recent activity
-        recent = ActivityLog.objects.filter(
-            organization=org, office=office
-        ).select_related("actor")[:10]
+        recent = (ActivityEvent.objects.filter(organization=org, office=office)
+                  .select_related("actor")
+                  .order_by("-created_at")[:10]
+                  )
 
         def _time_ago(dt):
             diff = timezone.now() - dt
@@ -885,11 +1035,38 @@ class DashboardView(APIView):
                 return f"{s // 3600}h atrás"
             return f"{s // 86400}d atrás"
 
+        def _event_verb(ev: ActivityEvent) -> str:
+            try:
+                if  isinstance(ev.changes, dict) and ev.changes.get("verb"):
+                    return str(ev.changes["verb"])
+            except Exception:
+                pass
+            return getattr(ev, "action", "") or "custom"
+        
+        def _event_description(ev: ActivityEvent) -> str:
+            s = (getattr(ev, "summary", "") or "").strip()
+            if s:
+                return s
+            try:
+                if isinstance(ev.changes, dict) and ev.changes.get("detail"):
+                    return str(ev.changes["detail"])[:500]
+            except Exception:
+                pass
+            return "-"
+        
+        def _event_actor_name(ev: ActivityEvent) -> str:
+            if ev.actor:
+                name = (ev.actor.get_full_name() or ev.actor.email or "").strip()
+                if name:
+                    return name
+            name = (getattr(ev, "actor_name", "") or "").strip()
+            return name or "Sistema"
+
         activity = [
             {
-                "verb": a.verb,
-                "description": a.description,
-                "actor": a.actor.get_full_name() if a.actor else "Sistema",
+                "verb": _event_verb(a),
+                "description": _event_description(a),
+                "actor": _event_actor_name(a),
                 "when": _time_ago(a.created_at),
             }
             for a in recent
@@ -902,3 +1079,149 @@ class DashboardView(APIView):
             "customers": cust_stats,
             "recent_activity": activity,
         })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Invite
+# ─────────────────────────────────────────────────────────────────────────────
+User = get_user_model()
+
+def _make_invite_url(request, token: str) -> str:
+    # você controla onde o front roda
+    front_base = (getattr(request, "frontend_base_url", None) or
+                  request.headers.get("X-Frontend-Base") or
+                  "http://localhost:5173")
+    return f"{front_base.rstrip('/')}/invite/{token}"
+
+
+class InvitationCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # ✅ aqui você decide quem pode convidar
+        # Exemplo: só admin/manager
+        membership = getattr(request, "membership", None)
+        if not membership or getattr(membership, "role", "") not in ("admin", "manager"):
+            return Response({"detail": "Sem permissão para convidar."}, status=403)
+
+        ser = InvitationCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+
+        email = ser.validated_data["email"].strip().lower()
+        role = ser.validated_data["role"]
+        ttl_hours = ser.validated_data.get("ttl_hours", 72)
+
+        office = None
+        office_id = ser.validated_data.get("office_id", None)
+        if office_id:
+            # se você tem Office model em portal:
+            from apps.offices.models import Office
+            office = Office.objects.filter(id=office_id, organization=request.organization).first()
+            if not office:
+                return Response({"detail": "Office inválido."}, status=400)
+
+        inv, raw = Invitation.create_invite(
+            organization=request.organization,
+            office=office,
+            email=email,
+            role=role,
+            invited_by=request.user,
+            ttl_hours=ttl_hours,
+        )
+
+        return Response(
+            {
+                "id": inv.id,
+                "email": inv.email,
+                "role": inv.role,
+                "expires_at": inv.expires_at,
+                "invite_url": _make_invite_url(request, raw),
+                "token": raw,  # opcional: útil se você vai mandar email no front
+            },
+            status=201,
+        )
+
+
+class InvitationRetrievePublicView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, token: str):
+        token_hash = Invitation._hash_token(token)
+        inv = Invitation.objects.select_related("organization", "office").filter(token_hash=token_hash).first()
+        if not inv:
+            return Response({"detail": "Convite inválido."}, status=404)
+
+        inv.mark_expired_if_needed()
+        if not inv.is_valid():
+            return Response({"detail": f"Convite {inv.status}."}, status=400)
+
+        return Response(InvitationPublicSerializer(inv).data, status=200)
+
+
+class InvitationAcceptView(APIView):
+    permission_classes = [AllowAny]
+
+    @transaction.atomic
+    def post(self, request, token: str):
+        token_hash = Invitation._hash_token(token)
+        inv = Invitation.objects.select_related("organization", "office").select_for_update().filter(token_hash=token_hash).first()
+        if not inv:
+            return Response({"detail": "Convite inválido."}, status=404)
+
+        inv.mark_expired_if_needed()
+        if not inv.is_valid():
+            return Response({"detail": f"Convite {inv.status}."}, status=400)
+
+        ser = InvitationAcceptSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+
+        password = ser.validated_data["password"]
+        full_name = (ser.validated_data.get("full_name") or "").strip()
+
+        # 1) cria ou busca usuário
+        user = User.objects.filter(email__iexact=inv.email).first()
+        if not user:
+            user = User.objects.create_user(email=inv.email, password=password)
+        else:
+            # se já existe, só define senha (ou você pode exigir login do usuário)
+            user.set_password(password)
+            user.save(update_fields=["password"])
+
+        if full_name and hasattr(user, "first_name"):
+            # se seu User for o padrão do Django: split simples
+            parts = full_name.split()
+            user.first_name = parts[0]
+            user.last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
+            user.save(update_fields=["first_name", "last_name"])
+
+        # 2) cria membership (ajuste para seu model real)
+        from apps.memberships.models import Membership  # ajuste o nome real do seu model
+
+        Membership.objects.update_or_create(
+            organization=inv.organization,
+            user=user,
+            defaults={
+                "office": inv.office,
+                "role": inv.role,
+                "is_active": True,
+            },
+        )
+
+        # 3) marca convite como aceito
+        inv.status = "accepted"
+        inv.accepted_at = timezone.now()
+        inv.accepted_by_user = user
+        inv.save(update_fields=["status", "accepted_at", "accepted_by_user"])
+
+        # 4) opcional: devolver JWT já logado
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+
+        return Response(
+            {
+                "detail": "Convite aceito.",
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+            },
+            status=200,
+        )

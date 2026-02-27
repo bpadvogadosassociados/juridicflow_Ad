@@ -3,6 +3,11 @@ from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+import secrets
+import hashlib
+from datetime import timedelta
+from django.conf import settings
+from django.utils import timezone
 
 
 class PermissionGroupProfile(models.Model):
@@ -133,3 +138,80 @@ class Membership(models.Model):
     def __str__(self):
         scope = self.office.name if self.office_id else "ORG"
         return f"{self.user.email} @ {self.organization.name} ({scope}) [{self.role}]"
+
+
+class Invitation(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("accepted", "Accepted"),
+        ("expired", "Expired"),
+        ("revoked", "Revoked"),
+    ]
+
+    organization = models.ForeignKey("organizations.Organization", on_delete=models.CASCADE, related_name="invitations")
+    office = models.ForeignKey("offices.Office", on_delete=models.SET_NULL, null=True, blank=True, related_name="invitations")
+
+    email = models.EmailField(db_index=True)
+    role = models.CharField(max_length=50, default="member")  # ajuste para seus roles reais
+    permissions = models.JSONField(default=dict, blank=True)  # opcional: granularidade extra
+
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)  # sha256 hex
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="pending")
+
+    invited_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="sent_invitations")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_by_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="accepted_invitations")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["organization", "email", "status"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    @staticmethod
+    def _hash_token(raw: str) -> str:
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def create_invite(
+        cls,
+        *,
+        organization,
+        office,
+        email: str,
+        role: str,
+        invited_by=None,
+        permissions=None,
+        ttl_hours: int = 72,
+    ):
+        raw = secrets.token_urlsafe(32)  # token forte
+        token_hash = cls._hash_token(raw)
+        inv = cls.objects.create(
+            organization=organization,
+            office=office,
+            email=email.strip().lower(),
+            role=role,
+            invited_by=invited_by,
+            permissions=permissions or {},
+            expires_at=timezone.now() + timedelta(hours=ttl_hours),
+            token_hash=token_hash,
+            status="pending",
+        )
+        return inv, raw
+
+    def is_valid(self) -> bool:
+        if self.status != "pending":
+            return False
+        if timezone.now() >= self.expires_at:
+            return False
+        return True
+
+    def mark_expired_if_needed(self) -> bool:
+        if self.status == "pending" and timezone.now() >= self.expires_at:
+            self.status = "expired"
+            self.save(update_fields=["status"])
+            return True
+        return False

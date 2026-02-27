@@ -20,9 +20,25 @@ class ActivityMixin:
             organization=self.request.organization,
             office=self.request.office,
         )
-        instance._current_user = self.request.user
-        instance._current_request = self.request
-        instance.save(update_fields=[])  # re-trigger signal with user set
+        # Log manually instead of re-triggering signal
+        try:
+            from apps.activity.models import log_event
+            model_name = instance.__class__.__name__
+            label = str(instance)
+            log_event(
+                module=self._activity_module(),
+                action="created",
+                summary=f"{self.request.user.get_full_name() or self.request.user.email} criou {model_name} '{label}'",
+                actor=self.request.user,
+                organization=self.request.organization,
+                office=self.request.office,
+                entity_type=model_name,
+                entity_id=str(instance.pk),
+                entity_label=label,
+                request=self.request,
+            )
+        except Exception:
+            pass
 
     def perform_update(self, serializer):
         instance = serializer.save()

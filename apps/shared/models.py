@@ -37,25 +37,4 @@ class OrganizationScopedModel(TimestampedModel):
     class Meta:
         abstract = True
 
-class AuditLog(models.Model):
-    ACTION_CHOICES = [
-        ("create", "Criar"),
-        ("update", "Atualizar"),
-        ("delete", "Deletar"),
-        ("login", "Login"),
-        ("other", "Outro"),
-    ]
-    user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True)
-    organization = models.ForeignKey("organizations.Organization", on_delete=models.CASCADE, null=True, blank=True)
-    office = models.ForeignKey("offices.Office", on_delete=models.CASCADE, null=True, blank=True)
-    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
-    model_name = models.CharField(max_length=100, blank=True)
-    object_id = models.CharField(max_length=64, blank=True)
-    changes = models.JSONField(default=dict, blank=True)
-    ip_address = models.GenericIPAddressField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
 
-    class Meta:
-        ordering = ["-created_at"]
-        verbose_name = "Log de auditoria"
-        verbose_name_plural = "Logs de auditoria"

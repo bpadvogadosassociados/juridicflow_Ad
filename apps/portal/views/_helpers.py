@@ -4,7 +4,7 @@ Utilitários compartilhados entre as views do portal.
 import json
 import logging
 
-from apps.portal.models import ActivityLog
+from apps.activity.models import log_event
 
 logger = logging.getLogger("apps.portal")
 
@@ -26,12 +26,19 @@ def parse_json_body(request) -> dict:
 def log_activity(request, verb: str, description: str):
     """Cria ActivityLog de forma padronizada."""
     try:
-        ActivityLog.objects.create(
-            organization=request.organization,
-            office=request.office,
-            actor=request.user,
-            verb=verb,
-            description=description,
-        )
+        log_event(
+            module="system",
+            action="custom",
+            summary=description[:500],
+            actor=request.user if getattr(request, "user", None) and request.user.is_authenticated else None,
+            organization=getattr(request, "organization", None),
+            office=getattr(request, "office", None),
+            entity_type="portal",
+            entity_id="",
+            entity_label="",
+            request=request,
+            changes={"verb": verb, "legacy_source": "portal.ActivityLog"},
+            
+            )
     except Exception as exc:
         logger.warning("Falha ao gravar ActivityLog: %s", exc)
